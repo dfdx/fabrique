@@ -1,10 +1,12 @@
 from functools import partial
+
 import jax
 import jax.numpy as jnp
 import jax.tree_util as tree_util
 from flax import linen as nn
 from tokenizers import Tokenizer
-from fabrique.llama.model import Transformer, ModelArgs
+
+from fabrique.llama.model import ModelArgs, Transformer
 
 # TOKENIZER_PATH = "/data/llama/tokenizer.model"
 TOKENIZER_PATH = "/home/devpod/.cache/huggingface/hub/models--microsoft--Phi-3-mini-128k-instruct/snapshots/f10fb29b79f038c78229ab4dcd9234a9666a770f/tokenizer.json"
@@ -26,12 +28,18 @@ def main():
     start_pos = 2
 
     with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
-        jax.jit(model.apply, static_argnames=("mutable",))(variables, tokens, 0, mutable=("cache",))
+        jax.jit(model.apply, static_argnames=("mutable",))(
+            variables, tokens, 0, mutable=("cache",)
+        )
 
     jit_apply = jax.jit(model.apply, static_argnames=("mutable",))
     jit_apply(variables, tokens, 0, mutable=("cache",))
 
     model.apply(variables, tokens, 0, mutable=("cache",))
+    causal_mask = jax.lax.dynamic_slice(
+        self.causal_mask, (0, 0, start_pos, 0), (1, 1, q_len, kv_len)
+    )
+    mask = causal_mask
 
     self = model
     _bsz, seqlen = tokens.shape
@@ -42,8 +50,8 @@ def main():
 
     tokens = tokenizer.encode("hello, he says").ids
     tokens = jnp.asarray(tokens).reshape(1, -1)
-
-
+    h = model.tok_embeddings(tokens)
+    x = h
 
 
 # In Meta's implementation, mask is padded with zeros for cached values in Transformer.forward().

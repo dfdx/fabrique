@@ -4,11 +4,13 @@
 # https://github.com/facebookresearch/llama#download
 
 from functools import partial
+
 import jax
 import jax.numpy as jnp
 import jax.tree_util as tree_util
 from tokenizers import Tokenizer
-from fabrique.llama.model import Transformer, ModelArgs
+
+from fabrique.llama.model import ModelArgs, Transformer
 
 # TOKENIZER_PATH = "/data/llama/tokenizer.model"
 TOKENIZER_PATH = "/home/devpod/.cache/huggingface/hub/models--microsoft--Phi-3-mini-128k-instruct/snapshots/f10fb29b79f038c78229ab4dcd9234a9666a770f/tokenizer.json"
@@ -26,7 +28,9 @@ def main():
     variables = tree_util.tree_map(lambda x: x.astype(jnp.bfloat16), variables)
     # note: we make start_pos static to make JIT happy (specifically, in jnp.triu),
     # but it leads to re-compilation each new value; I'd be happy to find a better way
-    jit_apply = partial(jax.jit, static_argnums=(2,), static_argnames=("mutable",))(model.apply)
+    jit_apply = partial(jax.jit, static_argnums=(2,), static_argnames=("mutable",))(
+        model.apply
+    )
     # cache is updated during the call, so we get both - logits and updated cache values
     logits, _variable_updates = jit_apply(variables, token_ids, 0, mutable=("cache",))
     print(logits)
