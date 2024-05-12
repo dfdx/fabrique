@@ -271,9 +271,7 @@ class Attention(nn.Module):
         values = lax.dynamic_update_slice(self.cache_v.value, xv, indices)
         self.cache_k.value = keys
         self.cache_v.value = values
-        # TODO: check that query is of shape (bs, seqlen, num_heads, head_dim)
         num_updated_cache_vectors = xq.shape[1]
-        # cache_index.value = cache_index.value + num_updated_cache_vectors
         # causal mask for cached decoder self-attention: our single query position should only attend to those key positions that have already been generated and cached, not the remaining zero elements.
         pad_mask = jnp.broadcast_to(
             jnp.arange(max_length) < start_pos + num_updated_cache_vectors,
