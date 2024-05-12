@@ -9,15 +9,26 @@ from safetensors.flax import load, load_file
 
 from fabrique.llama.model import ModelArgs, Transformer
 
-# TOKENIZER_PATH = "/data/llama/tokenizer.model"
-BASE_DIR = "/home/devpod/.cache/huggingface/hub/models--microsoft--Phi-3-mini-128k-instruct/snapshots/f10fb29b79f038c78229ab4dcd9234a9666a770f/"
+# BASE_DIR = "/home/devpod/.cache/huggingface/hub/models--microsoft--Phi-3-mini-128k-instruct/snapshots/f10fb29b79f038c78229ab4dcd9234a9666a770f/"
+BASE_DIR = "/home/devpod/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-8B-Instruct/snapshots/1448453bdb895762499deb4176c1dd83b145fac1/"
 TOKENIZER_PATH = BASE_DIR + "tokenizer.json"
 
 
 
 def main():
+    args = ModelArgs(max_batch_size=1, max_seq_len=512)
+    tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
+    args.vocab_size = tokenizer.get_vocab_size()
+    tokens = tokenizer.encode("frankenstein walks into a bar").ids
+    tokens = jnp.asarray(tokens).reshape(1, -1)
+    rng = jax.random.PRNGKey(925)
+    model = Transformer(args)
+    variables = model.init(rng, tokens, 0)
+    params = variables["params"]
+
     path = BASE_DIR + "model-00001-of-00002.safetensors"
-    variables = load_file(path)
+    plain = load_file(path)
+
 
 
 
