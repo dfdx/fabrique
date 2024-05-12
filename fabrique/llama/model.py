@@ -226,65 +226,66 @@ class Attention(nn.Module):
             self.args.dim,
             use_bias=False,
         )
-        # self.cache_k = self.variable(
-        #     "cache",
-        #     "cache_k",
-        #     jnp.zeros,
-        #     (
-        #         self.args.max_batch_size,
-        #         self.args.max_seq_len,
-        #         self.n_kv_heads,
-        #         self.head_dim,
-        #     ),
-        #     jnp.bfloat16,
-        # )
-        # self.cache_v = self.variable(
-        #     "cache",
-        #     "cache_v",
-        #     jnp.zeros,
-        #     (
-        #         self.args.max_batch_size,
-        #         self.args.max_seq_len,
-        #         self.n_kv_heads,
-        #         self.head_dim,
-        #     ),
-        #     jnp.bfloat16,
-        # )
+        self.cache_k = self.variable(
+            "cache",
+            "cache_k",
+            jnp.zeros,
+            (
+                self.args.max_batch_size,
+                self.args.max_seq_len,
+                self.n_kv_heads,
+                self.head_dim,
+            ),
+            # jnp.bfloat16,
+            jnp.float32,
+        )
+        self.cache_v = self.variable(
+            "cache",
+            "cache_v",
+            jnp.zeros,
+            (
+                self.args.max_batch_size,
+                self.args.max_seq_len,
+                self.n_kv_heads,
+                self.head_dim,
+            ),
+            # jnp.bfloat16,
+            jnp.float32,
+        )
 
 
     @nn.compact
     # Copied from transformers.models.gpt_neo.modeling_flax_gpt_neo.FlaxGPTNeoSelfAttention._concatenate_to_cache
-    def _concatenate_to_cache(self, key, value, query, attention_mask):
+    def _concatenate_to_cache(self, xk, xv, xq, attn_mask, start_pos: int):
         """
         This function takes projected key, value states from a single input token and concatenates the states to cached
         states from previous steps. This function is slighly adapted from the official Flax repository:
         https://github.com/google/flax/blob/491ce18759622506588784b4fca0e4bf05f8c8cd/flax/linen/attention.py#L252
         """
         # detect if we're initializing by absence of existing cache data.
-        is_initialized = self.has_variable("cache", "cached_key")
-        # why cache is initialized to the size of the key/value and not to the maximum size?
-        cached_key = self.variable("cache", "cached_key", jnp.zeros, key.shape, key.dtype)
-        cached_value = self.variable("cache", "cached_value", jnp.zeros, value.shape, value.dtype)
-        cache_index = self.variable("cache", "cache_index", lambda: jnp.array(0, dtype=jnp.int32))
+        keys, values = xk, xv
+        cached_key = self.cache_k
+        cached_value = self.cache_v
 
-        if is_initialized:
-            *batch_dims, max_length, num_heads, depth_per_head = cached_key.value.shape
-            # update key, value caches with our new 1d spatial slices
-            cur_index = cache_index.value
-            indices = (0,) * len(batch_dims) + (cur_index, 0, 0)
-            key = lax.dynamic_update_slice(cached_key.value, key, indices)
-            value = lax.dynamic_update_slice(cached_value.value, value, indices)
-            cached_key.value = key
-            cached_value.value = value
-            num_updated_cache_vectors = query.shape[1]    # TODO: check that query is of shape (bs, seqlen, num_heads, head_dim)
-            cache_index.value = cache_index.value + num_updated_cache_vectors
-            # causal mask for cached decoder self-attention: our single query position should only attend to those key positions that have already been generated and cached, not the remaining zero elements.
-            pad_mask = jnp.broadcast_to(
-                jnp.arange(max_length) < cur_index + num_updated_cache_vectors,
-                tuple(batch_dims) + (1, num_updated_cache_vectors, max_length),
-            )
-            attention_mask = combine_masks(pad_mask, attention_mask)
-        return key, value, attention_mask
+        *batch_dims, max_length, num_heads, depth_per_head = cached_key.value.shape
+        # update key, value caches with our new 1d spatial slices
+        # cur_index = cache_index.value
+        # (starting_batch, start_pos_in_seq, starting_head, starting_pos_in_head)
+        indices = (0,) * len(batch_dims) + (start_pos, 0, 0)
+        # note: keys and values now have length == max_length, i.e. may be longer than xk/xv
+        keys = lax.dynamic_update_slice(cached_key.value, keys, indices)
+        values = lax.dynamic_update_slice(cached_value.value, values, indices)
+        cached_key.value = keys
+        cached_value.value = values
+        num_updated_cache_vectors = xq.shape[1]    # TODO: check that query is of shape (bs, seqlen, num_heads, head_dim)
+        # cache_index.value = cache_index.value + num_updated_cache_vectors
+        # causal mask for cached decoder self-attention: our single query position should only attend to those key positions that have already been generated and cached, not the remaining zero elements.
+        pad_mask = jnp.broadcast_to(
+            jnp.arange(max_length) < start_pos + num_updated_cache_vectors,
+            tuple(batch_dims) + (1, num_updated_cache_vectors, max_length),
+        )
+        attn_mask = combine_masks(pad_mask, attn_mask)
+        return keys, values, attn_mask
 
 
     def __call__(
@@ -325,7 +326,7 @@ class Attention(nn.Module):
         # keys = self.cache_k.value[:bsz, : start_pos + seqlen]
         # values = self.cache_v.value[:bsz, : start_pos + seqlen]
 
-        keys, values, mask = self._concatenate_to_cache(xk, xv, xq, mask)
+        keys, values, mask = self._concatenate_to_cache(xk, xv, xq, mask, start_pos)
 
 
         # repeat k/v heads if n_kv_heads < n_heads
@@ -340,6 +341,7 @@ class Attention(nn.Module):
         # scores = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
 
         if mask is not None:
+            # TODO: re-format mask from {1, 0} to {0, -inf}
             scores = scores + mask  # (bs, n_local_heads, seqlen, cache_len + seqlen)
         # scores = F.softmax(scores.float(), dim=-1).type_as(xq)
         scores = nn.softmax(scores.astype("float32"), axis=-1).astype(xq.dtype)
@@ -500,6 +502,7 @@ class Transformer(nn.Module):
             self.args.dim // self.args.n_heads,
             self.args.max_seq_len * 2,
         )
+        self.causal_mask = nn.make_causal_mask(jnp.ones((1, self.args.max_seq_len), dtype="bool"), dtype="bool")
 
     def __call__(self, tokens: jax.Array, start_pos: int):
         """
@@ -512,19 +515,21 @@ class Transformer(nn.Module):
         Returns:
             jax.Array: Output logits after applying the Transformer model.
         """
-        _bsz, seqlen = tokens.shape
+        _bsz, seq_len = tokens.shape
+        # query_length = seqlen - start_pos
+        q_len = seq_len
         h = self.tok_embeddings(tokens)
         # freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
-        mask = None
-        if seqlen > 1:
-            # mask = jnp.full((1, 1, seqlen, seqlen), float("-inf"))
-            # mask = jnp.triu(mask).astype(h.dtype)
-            mask = nn.make_causal_mask(jnp.ones((1, seqlen)))   # TODO: untested
+        # max_decoder_length = self.variables["cache"]["layers_0"]["attention"]["cached_key"].shape[1]
+        max_decoder_length = self.args.max_seq_len
+        causal_mask = jax.lax.dynamic_slice(
+            self.causal_mask, (0, 0, start_pos, 0), (1, 1, q_len, max_decoder_length)
+        )
         for layer in self.layers:
             # note: unlike PyTorch implementation, we pass the full freqs_cis array
             # and take subarray later to avoid JIT errors due to dynamic shape
-            h = layer(h, start_pos, self.freqs_cis, mask)
+            h = layer(h, start_pos, self.freqs_cis, causal_mask)
         h = self.norm(h)
         output = self.output(h).astype("float32")
         return output

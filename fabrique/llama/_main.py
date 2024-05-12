@@ -2,6 +2,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import jax.tree_util as tree_util
+from flax import linen as nn
 from tokenizers import Tokenizer
 from fabrique.llama.model import Transformer, ModelArgs
 
@@ -20,20 +21,28 @@ def main():
     variables = model.init(rng, tokens, 0)
     # variables["params"] = tree_util.tree_map(lambda x: x.astype(jnp.bfloat16), variables["params"])
 
-    # note: we make start_pos static to make JIT happy (specifically, in jnp.triu),
-    # but it leads to re-compilation each new value; I'd be happy to find a better way
-    # jit_apply = partial(jax.jit, static_argnums=(2,), static_argnames=("mutable",))(model.apply)
-    # cache is updated during the call, so we get both - logits and updated cache values
-    # logits, _variable_updates = jit_apply(variables, tokens, 0, mutable=("cache",))
-
     model = model.bind(variables, mutable=("cache",))
     freqs_cis = model.freqs_cis
     start_pos = 2
 
-    jax.jit(model.apply, static_argnames=("mutable",))(variables, tokens, 0, mutable=("cache",))
+    with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
+        jax.jit(model.apply, static_argnames=("mutable",))(variables, tokens, 0, mutable=("cache",))
+
+    jit_apply = jax.jit(model.apply, static_argnames=("mutable",))
+    jit_apply(variables, tokens, 0, mutable=("cache",))
+
+    model.apply(variables, tokens, 0, mutable=("cache",))
 
     self = model
+    _bsz, seqlen = tokens.shape
+    x = self.tok_embeddings(tokens)
+    # mask = nn.make_causal_mask(jnp.ones((1, seqlen)))   # TODO: untested
+
     self = model.layers[0].attention
+
+    tokens = tokenizer.encode("hello, he says").ids
+    tokens = jnp.asarray(tokens).reshape(1, -1)
+
 
 
 
@@ -52,11 +61,10 @@ def main():
 
 # I think we need to drop cache_index and pass start_pos explicitely, yet shift the mask
 # as in the link above.
-# Questions:
-# 1. How do me manage start_pos from outside?
-# 2. Maybe just reset cache_index and keep the current implementation?
-#
+
 # Also need to figure out mask format
+
+# TODO: remove cache_index and pass start_pos (rename to start_idx?) to _concatenate_to_cache
 
 
 # TODO: check that mask after _concatenate_to_cache() has correct format (0 vs -inf)
