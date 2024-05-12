@@ -1,13 +1,13 @@
 import math
 from dataclasses import dataclass
-from typing import Optional, Tuple
 from functools import partial
+from typing import Optional, Tuple
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
-from jax import lax
 from flax.linen.attention import combine_masks
+from jax import lax
 
 
 @dataclass
@@ -253,8 +253,7 @@ class Attention(nn.Module):
             jnp.float32,
         )
 
-
-    @nn.compact
+    # @nn.compact
     # Copied from transformers.models.gpt_neo.modeling_flax_gpt_neo.FlaxGPTNeoSelfAttention._concatenate_to_cache
     def _concatenate_to_cache(self, xk, xv, xq, attn_mask, start_pos: int):
         """
@@ -262,22 +261,18 @@ class Attention(nn.Module):
         states from previous steps. This function is slighly adapted from the official Flax repository:
         https://github.com/google/flax/blob/491ce18759622506588784b4fca0e4bf05f8c8cd/flax/linen/attention.py#L252
         """
-        # detect if we're initializing by absence of existing cache data.
-        keys, values = xk, xv
-        cached_key = self.cache_k
-        cached_value = self.cache_v
+        # keys, values = xk, xv
 
-        *batch_dims, max_length, num_heads, depth_per_head = cached_key.value.shape
-        # update key, value caches with our new 1d spatial slices
-        # cur_index = cache_index.value
-        # (starting_batch, start_pos_in_seq, starting_head, starting_pos_in_head)
+        *batch_dims, max_length, num_heads, depth_per_head = self.cache_k.value.shape
+        # indices are [starting_batch, start_pos_in_seq, starting_head, starting_pos_in_head]
         indices = (0,) * len(batch_dims) + (start_pos, 0, 0)
         # note: keys and values now have length == max_length, i.e. may be longer than xk/xv
-        keys = lax.dynamic_update_slice(cached_key.value, keys, indices)
-        values = lax.dynamic_update_slice(cached_value.value, values, indices)
-        cached_key.value = keys
-        cached_value.value = values
-        num_updated_cache_vectors = xq.shape[1]    # TODO: check that query is of shape (bs, seqlen, num_heads, head_dim)
+        keys = lax.dynamic_update_slice(self.cache_k.value, xk, indices)
+        values = lax.dynamic_update_slice(self.cache_v.value, xv, indices)
+        self.cache_k.value = keys
+        self.cache_v.value = values
+        # TODO: check that query is of shape (bs, seqlen, num_heads, head_dim)
+        num_updated_cache_vectors = xq.shape[1]
         # cache_index.value = cache_index.value + num_updated_cache_vectors
         # causal mask for cached decoder self-attention: our single query position should only attend to those key positions that have already been generated and cached, not the remaining zero elements.
         pad_mask = jnp.broadcast_to(
@@ -286,7 +281,6 @@ class Attention(nn.Module):
         )
         attn_mask = combine_masks(pad_mask, attn_mask)
         return keys, values, attn_mask
-
 
     def __call__(
         self,
@@ -314,38 +308,32 @@ class Attention(nn.Module):
         xk = xk.reshape(bsz, seqlen, self.n_kv_heads, self.head_dim)
         xv = xv.reshape(bsz, seqlen, self.n_kv_heads, self.head_dim)
 
-        # xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis[start_pos : start_pos + x.shape[-2]])
-        xq, xk = apply_rotary_emb(xq, xk, freqs_cis=lax.dynamic_slice(freqs_cis, (start_pos, 0), (seqlen, freqs_cis.shape[1])))
+        freqs_cis_slice = lax.dynamic_slice(
+            freqs_cis, (start_pos, 0), (seqlen, freqs_cis.shape[1])
+        )
+        xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis_slice)
 
-        # self.cache_k.value = self.cache_k.value.astype(xq.dtype)
-        # self.cache_v.value = self.cache_v.value.astype(xq.dtype)
-
-        # self.cache_k.value = self.cache_k.value.at[:bsz, start_pos : start_pos + seqlen].set(xk)
-        # self.cache_v.value = self.cache_v.value.at[:bsz, start_pos : start_pos + seqlen].set(xv)
-
-        # keys = self.cache_k.value[:bsz, : start_pos + seqlen]
-        # values = self.cache_v.value[:bsz, : start_pos + seqlen]
-
-        keys, values, mask = self._concatenate_to_cache(xk, xv, xq, mask, start_pos)
-
+        # shape of kv after concatenating to the cache is
+        # [bs, max_seq_len, n_heads, head_dim]
+        xk, xv, mask = self._concatenate_to_cache(xk, xv, xq, mask, start_pos)
 
         # repeat k/v heads if n_kv_heads < n_heads
-        keys = repeat_kv(keys, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
-        values = repeat_kv(values, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+        xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+        xv = repeat_kv(xv, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
 
         xq = jnp.moveaxis(xq, 1, 2)  # (bs, n_local_heads, seqlen, head_dim)
-        keys = jnp.moveaxis(keys, 1, 2)
-        values = jnp.moveaxis(values, 1, 2)
+        xk = jnp.moveaxis(xk, 1, 2)
+        xv = jnp.moveaxis(xv, 1, 2)
 
-        scores = jnp.matmul(xq, jnp.moveaxis(keys, 2, 3)) / math.sqrt(self.head_dim)
-        # scores = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
+        scores = jnp.matmul(xq, jnp.moveaxis(xk, 2, 3)) / math.sqrt(self.head_dim)
 
         if mask is not None:
-            # TODO: re-format mask from {1, 0} to {0, -inf}
-            scores = scores + mask  # (bs, n_local_heads, seqlen, cache_len + seqlen)
-        # scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+            # so far we used mask with 1s to mean "attend" and 0s to mean "ignore"
+            # to apply it to scores, we convert it to 0s and -inf accordingly
+            mask_ = jnp.where(mask == 0, -jnp.inf, 0)
+            scores = scores + mask_  # (bs, n_heads, q_len, kv_len)
         scores = nn.softmax(scores.astype("float32"), axis=-1).astype(xq.dtype)
-        output = jnp.matmul(scores, values)  # (bs, n_local_heads, seqlen, head_dim)
+        output = jnp.matmul(scores, xv)  # (bs, n_heads, q_len, head_dim)
         output = jnp.moveaxis(output, 1, 2).ravel().reshape(bsz, seqlen, -1)
         return self.wo(output)
 
@@ -383,15 +371,15 @@ class FeedForward(nn.Module):
 
         self.w1 = nn.Dense(
             hidden_dim,
-            use_bias=False,  # gather_output=False, init_method=lambda x: x
+            use_bias=False,
         )
         self.w2 = nn.Dense(
             self.dim,
-            use_bias=False,  # input_is_parallel=True, init_method=lambda x: x
+            use_bias=False,
         )
         self.w3 = nn.Dense(
             hidden_dim,
-            use_bias=False,  # gather_output=False, init_method=lambda x: x
+            use_bias=False,
         )
 
     def __call__(self, x):
@@ -455,9 +443,7 @@ class TransformerBlock(nn.Module):
             jax.Array: Output tensor after applying attention and feedforward layers.
 
         """
-        h = x + self.attention(
-            self.attention_norm(x), start_pos, freqs_cis, mask
-        )
+        h = x + self.attention(self.attention_norm(x), start_pos, freqs_cis, mask)
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
 
@@ -502,7 +488,9 @@ class Transformer(nn.Module):
             self.args.dim // self.args.n_heads,
             self.args.max_seq_len * 2,
         )
-        self.causal_mask = nn.make_causal_mask(jnp.ones((1, self.args.max_seq_len), dtype="bool"), dtype="bool")
+        self.causal_mask = nn.make_causal_mask(
+            jnp.ones((1, self.args.max_seq_len), dtype="bool"), dtype="bool"
+        )
 
     def __call__(self, tokens: jax.Array, start_pos: int):
         """
@@ -516,19 +504,13 @@ class Transformer(nn.Module):
             jax.Array: Output logits after applying the Transformer model.
         """
         _bsz, seq_len = tokens.shape
-        # query_length = seqlen - start_pos
         q_len = seq_len
         h = self.tok_embeddings(tokens)
-        # freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
-
-        # max_decoder_length = self.variables["cache"]["layers_0"]["attention"]["cached_key"].shape[1]
-        max_decoder_length = self.args.max_seq_len
+        kv_len = self.args.max_seq_len
         causal_mask = jax.lax.dynamic_slice(
-            self.causal_mask, (0, 0, start_pos, 0), (1, 1, q_len, max_decoder_length)
+            self.causal_mask, (0, 0, start_pos, 0), (1, 1, q_len, kv_len)
         )
         for layer in self.layers:
-            # note: unlike PyTorch implementation, we pass the full freqs_cis array
-            # and take subarray later to avoid JIT errors due to dynamic shape
             h = layer(h, start_pos, self.freqs_cis, causal_mask)
         h = self.norm(h)
         output = self.output(h).astype("float32")

@@ -1,18 +1,19 @@
 import json
 import os
 import time
-from typing import List, Literal, Optional, Tuple, TypedDict
 from functools import partial
+from typing import List, Literal, Optional, Tuple, TypedDict
 
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
 import optax
-# import torch
 
+from fabrique.llama.convert import convert_to_nested, convert_transformer
 from fabrique.llama.model import ModelArgs, Transformer
 from fabrique.llama.tokenizer import Tokenizer
-from fabrique.llama.convert import convert_to_nested, convert_transformer
+
+# import torch
 
 
 Role = Literal["system", "user", "assistant"]
@@ -82,7 +83,9 @@ class Llama:
         # instantiate model
         model = Transformer(args)
         # initialize parameters and caches
-        variables = model.init(jax.random.PRNGKey(seed), jnp.asarray([[22172, 3186]]), 0)
+        variables = model.init(
+            jax.random.PRNGKey(seed), jnp.asarray([[22172, 3186]]), 0
+        )
         cache = variables["cache"]
         state_dict = torch.load(model_path)
         nested_state_dict = convert_to_nested(state_dict)
@@ -157,12 +160,20 @@ class Llama:
         #         reduction="none",
         #         ignore_index=pad_id,
         #     )
-        jit_apply = partial(jax.jit, static_argnums=(2,), static_argnames=("mutable",))(self.model.apply)
+        jit_apply = partial(jax.jit, static_argnums=(2,), static_argnames=("mutable",))(
+            self.model.apply
+        )
         for cur_pos in range(min_prompt_len, total_len):
             from datetime import datetime
-            print(f"generating token {cur_pos} at {datetime.now().strftime('%H:%M:%S')}")
+
+            print(
+                f"generating token {cur_pos} at {datetime.now().strftime('%H:%M:%S')}"
+            )
             logits, variable_updates = jit_apply(
-                self.variables, tokens[:, prev_pos:cur_pos], prev_pos, mutable=("cache",)
+                self.variables,
+                tokens[:, prev_pos:cur_pos],
+                prev_pos,
+                mutable=("cache",),
             )
             print(f" ... {datetime.now().strftime('%H:%M:%S')}")
             if temperature > 0:
@@ -182,8 +193,8 @@ class Llama:
             if logprobs:
                 token_logprobs = token_logprobs.at[:, prev_pos + 1 : cur_pos + 1].set(
                     optax.softmax_cross_entropy_with_integer_labels(
-                        logits,
-                        tokens[:, prev_pos + 1 : cur_pos + 1])
+                        logits, tokens[:, prev_pos + 1 : cur_pos + 1]
+                    )
                 )
             eos_reached |= (~input_text_mask[:, cur_pos]) & (
                 next_token == self.tokenizer.eos_id
@@ -211,9 +222,7 @@ class Llama:
             out_logprobs.append(probs)
         return (out_tokens, out_logprobs if logprobs else None)
 
-
     # TODO: convert text_completion() and chat_completion() to JAX
-
 
     # def text_completion(
     #     self,

@@ -1,12 +1,12 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
 # This software may be used and distributed according to the terms of the Llama 2 Community License Agreement.
 
-#-------------------------------------
-import sys, os
-sys.path.append("gendo")
-from llama.model_pt import ModelArgs, Transformer
-#-------------------------------------
+import os
 
+# -------------------------------------
+import sys
+
+sys.path.append("gendo")
 import json
 import os
 import sys
@@ -21,10 +21,12 @@ from fairscale.nn.model_parallel.initialize import (
     initialize_model_parallel,
     model_parallel_is_initialized,
 )
+from llama.model_pt import ModelArgs, Transformer
 
 # from llama.model import ModelArgs, Transformer
 from llama.tokenizer import Tokenizer
 
+# -------------------------------------
 
 
 Role = Literal["system", "user", "assistant"]
@@ -381,9 +383,9 @@ class Llama:
                 {
                     "generation": {
                         "role": "assistant",
-                        "content": self.tokenizer.decode(t)
-                        if not unsafe
-                        else UNSAFE_ERROR,
+                        "content": (
+                            self.tokenizer.decode(t) if not unsafe else UNSAFE_ERROR
+                        ),
                     },
                     "tokens": [self.tokenizer.decode(x) for x in t],
                     "logprobs": logprobs_i,
@@ -429,18 +431,24 @@ def sample_top_p(probs, p):
     return next_token
 
 
-
-
 ######################################################
+
 
 def main_pt():
     from tests.llama.test_model import init_pseudo_distributed
+
     init_pseudo_distributed()
 
     tokenizer_path = "/data/llama/tokenizer.model"
 
     model_dir = "/data/llama/llama-2-7b"
-    llama = Llama.build(model_dir, tokenizer_path, max_seq_len=512, max_batch_size=1, model_parallel_size=1)
+    llama = Llama.build(
+        model_dir,
+        tokenizer_path,
+        max_seq_len=512,
+        max_batch_size=1,
+        model_parallel_size=1,
+    )
     self = llama
 
     prompt_tokens = self.tokenizer.encode("frankenstein walks into a bar", False, False)
@@ -453,4 +461,3 @@ def main_pt():
     echo: bool = False
     seed = 0
     cur_pos = 8
-
