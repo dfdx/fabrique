@@ -12,11 +12,12 @@ from fabrique.llama.model import ModelArgs, Transformer
 # BASE_DIR = "/home/devpod/.cache/huggingface/hub/models--microsoft--Phi-3-mini-128k-instruct/snapshots/f10fb29b79f038c78229ab4dcd9234a9666a770f/"
 BASE_DIR = "/home/devpod/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-8B-Instruct/snapshots/1448453bdb895762499deb4176c1dd83b145fac1/"
 TOKENIZER_PATH = BASE_DIR + "tokenizer.json"
+CONFIG_PATH = BASE_DIR + "config.json"
 
 
 
 def main():
-    args = ModelArgs(max_batch_size=1, max_seq_len=512)
+    args = ModelArgs.from_file(CONFIG_PATH)
     tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
     args.vocab_size = tokenizer.get_vocab_size()
     tokens = tokenizer.encode("frankenstein walks into a bar").ids
@@ -41,7 +42,7 @@ def main2():
     rng = jax.random.PRNGKey(925)
     model = Transformer(args)
     variables = model.init(rng, tokens, 0)
-    # variables["params"] = tree_util.tree_map(lambda x: x.astype(jnp.bfloat16), variables["params"])
+    variables = jax.tree.map(lambda x: x.astype(jnp.bfloat16), variables)
 
     model = model.bind(variables, mutable=("cache",))
     freqs_cis = model.freqs_cis

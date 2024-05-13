@@ -1,4 +1,5 @@
 import math
+import json
 from dataclasses import dataclass
 from functools import partial
 from typing import Optional, Tuple
@@ -10,6 +11,36 @@ from flax.linen.attention import combine_masks
 from jax import lax
 
 
+#     {
+#   "architectures": [
+#     "LlamaForCausalLM"
+#   ],
+#   "attention_bias": false,
+#   "attention_dropout": 0.0,
+#   "bos_token_id": 128000,
+#   "eos_token_id": 128001,
+#   "hidden_act": "silu",
+#   "hidden_size": 4096,
+#   "initializer_range": 0.02,
+#   "intermediate_size": 14336,
+#   "max_position_embeddings": 8192,
+#   "model_type": "llama",
+#   "num_attention_heads": 32,
+#   "num_hidden_layers": 32,
+#   "num_key_value_heads": 8,
+#   "pretraining_tp": 1,
+#   "rms_norm_eps": 1e-05,
+#   "rope_scaling": null,
+#   "rope_theta": 500000.0,
+#   "tie_word_embeddings": false,
+#   "torch_dtype": "bfloat16",
+#   "transformers_version": "4.40.0.dev0",
+#   "use_cache": true,
+#   "vocab_size": 128256
+# }
+
+
+
 @dataclass
 class ModelArgs:
     dim: int = 4096
@@ -18,11 +49,35 @@ class ModelArgs:
     n_kv_heads: Optional[int] = None
     vocab_size: int = -1  # defined later by tokenizer
     multiple_of: int = 256  # make SwiGLU hidden layer size multiple of large power of 2
+    ffn_hidden_size: int = 14336
     ffn_dim_multiplier: Optional[float] = None
     norm_eps: float = 1e-5
 
     max_batch_size: int = 32
     max_seq_len: int = 2048
+
+    @staticmethod
+    def from_file(config_file: str, **kwargs):
+        """
+        Load ModelArgs from a Hugginface config file.
+        """
+        with open(config_file) as fp:
+            config = json.load(fp)
+        args = ModelArgs(
+            dim=config["hidden_size"],
+            n_layers=config["num_hidden_layers"],
+            n_heads=config["num_attention_heads"],
+            n_kv_heads=config["num_key_value_heads"],
+            vocab_size=config["vocab_size"],
+            # multiple_of=
+            # ffn_dim_multiplier=
+            norm_eps=config["rms_norm_eps"],
+            # max_batch_size=
+            max_seq_len=config["max_position_embeddings"],
+        )
+        for k, v in kwargs.items():
+            setattr(args, k, v)
+        return args
 
 
 class RMSNorm(nn.Module):
@@ -253,16 +308,12 @@ class Attention(nn.Module):
             jnp.float32,
         )
 
-    # @nn.compact
-    # Copied from transformers.models.gpt_neo.modeling_flax_gpt_neo.FlaxGPTNeoSelfAttention._concatenate_to_cache
     def _concatenate_to_cache(self, xk, xv, xq, attn_mask, start_pos: int):
         """
         This function takes projected key, value states from a single input token and concatenates the states to cached
         states from previous steps. This function is slighly adapted from the official Flax repository:
         https://github.com/google/flax/blob/491ce18759622506588784b4fca0e4bf05f8c8cd/flax/linen/attention.py#L252
         """
-        # keys, values = xk, xv
-
         *batch_dims, max_length, num_heads, depth_per_head = self.cache_k.value.shape
         # indices are [starting_batch, start_pos_in_seq, starting_head, starting_pos_in_head]
         indices = (0,) * len(batch_dims) + (start_pos, 0, 0)
@@ -359,7 +410,7 @@ class FeedForward(nn.Module):
 
         """
         hidden_dim = self.hidden_dim
-        hidden_dim = int(2 * hidden_dim / 3)
+        # hidden_dim = int(2 * hidden_dim / 3)
         # custom dim factor multiplier
         if self.ffn_dim_multiplier is not None:
             hidden_dim = int(self.ffn_dim_multiplier * hidden_dim)
@@ -414,7 +465,8 @@ class TransformerBlock(nn.Module):
         self.attention = Attention(args)
         self.feed_forward = FeedForward(
             dim=args.dim,
-            hidden_dim=4 * args.dim,
+            # hidden_dim=4 * args.dim,
+            hidden_dim=args.ffn_hidden_size,
             multiple_of=args.multiple_of,
             ffn_dim_multiplier=args.ffn_dim_multiplier,
         )
