@@ -50,9 +50,10 @@ class ModelArgs:
     ffn_hidden_size: int = 14336
     ffn_dim_multiplier: Optional[float] = None
     norm_eps: float = 1e-5
-
     max_batch_size: int = 32
     max_seq_len: int = 2048
+    dtype = jnp.bfloat16
+
 
     @staticmethod
     def from_file(config_file: str, **kwargs):
@@ -289,8 +290,7 @@ class Attention(nn.Module):
                 self.n_kv_heads,
                 self.head_dim,
             ),
-            # jnp.bfloat16,
-            jnp.float32,
+            self.args.dtype,
         )
         self.cache_v = self.variable(
             "cache",
@@ -302,8 +302,7 @@ class Attention(nn.Module):
                 self.n_kv_heads,
                 self.head_dim,
             ),
-            # jnp.bfloat16,
-            jnp.float32,
+            self.args.dtype,
         )
 
     def _concatenate_to_cache(self, xk, xv, xq, attn_mask, start_pos: int):

@@ -1,3 +1,4 @@
+import os
 from functools import partial
 
 import jax
@@ -8,76 +9,47 @@ from safetensors.flax import load, load_file
 from tokenizers import Tokenizer
 
 from fabrique.llama.model import ModelArgs, Transformer
+from fabrique.llama.loading import RULES as LLAMA_RULES
+from fabrique.loading import load_variables
 
 # BASE_DIR = "/home/devpod/.cache/huggingface/hub/models--microsoft--Phi-3-mini-128k-instruct/snapshots/f10fb29b79f038c78229ab4dcd9234a9666a770f/"
 MODEL_DIR = "/home/devpod/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-8B-Instruct/snapshots/1448453bdb895762499deb4176c1dd83b145fac1/"
-TOKENIZER_PATH = MODEL_DIR + "tokenizer.json"
-CONFIG_PATH = MODEL_DIR + "config.json"
+# TOKENIZER_PATH = MODEL_DIR + "tokenizer.json"
+# CONFIG_PATH = MODEL_DIR + "config.json"
+
+
+
+class Llama:
+
+    def __init__(self, model_dir: str, **kwargs):
+        config_file = os.path.join(model_dir, "config.json")
+        tokenizer_file = os.path.join(model_dir, "tokenizer.json")
+        self.tokenizer = Tokenizer.from_file(tokenizer_file)
+        args = ModelArgs.from_file(config_file, **kwargs)
+        self.model = Transformer(args)
+        self.variables = load_variables(LLAMA_RULES, model_dir)
 
 
 def main():
     model_dir = MODEL_DIR
+    kwargs = {"max_seq_len": 512, "max_batch_size": 1}
+    llama = Llama(model_dir, **kwargs)
+    tokenizer, model, variables = llama.tokenizer, llama.model, llama.variables
 
-    args = ModelArgs.from_file(CONFIG_PATH, max_batch_size=1, max_seq_len=512)
-    tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
-    args.vocab_size = tokenizer.get_vocab_size()
-    tokens = tokenizer.encode("frankenstein walks into a bar").ids
+    tokens = tokenizer.encode("Hello, my name is").ids
     tokens = jnp.asarray(tokens).reshape(1, -1)
+
     rng = jax.random.PRNGKey(925)
-    model = Transformer(args)
-    variables = model.init(rng, tokens, 0)
-    ref = variables["params"]
-
-    # TODO: move it to tests
-    params = load_variables(RULES, model_dir)["params"]
-    jax.tree.map(lambda p, r: p.shape == r.shape, params, ref)
-    jax.tree.map(
-        lambda p, r: f"param = {p.shape}, ref = {r.shape}",
-        params["layers_0"],
-        ref["layers_0"],
-    )
-
-    rule = RULES[1]
-    safe_key = "model.layers.0.input_layernorm.weight"
-
-
-def main2():
-    args = ModelArgs(max_batch_size=1, max_seq_len=512)
-    tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
-    args.vocab_size = tokenizer.get_vocab_size()
-    tokens = tokenizer.encode("frankenstein walks into a bar").ids
-    tokens = jnp.asarray(tokens).reshape(1, -1)
-    rng = jax.random.PRNGKey(925)
-    model = Transformer(args)
-    variables = model.init(rng, tokens, 0)
-    variables = jax.tree.map(lambda x: x.astype(jnp.bfloat16), variables)
-
-    model = model.bind(variables, mutable=("cache",))
-    freqs_cis = model.freqs_cis
-    start_pos = 2
-
-    with jax.profiler.trace("/tmp/jax-trace", create_perfetto_link=True):
-        jax.jit(model.apply, static_argnames=("mutable",))(
-            variables, tokens, 0, mutable=("cache",)
-        )
+    logits, v_upd = model.apply(variables, tokens, 0, mutable=("cache",))
 
     jit_apply = jax.jit(model.apply, static_argnames=("mutable",))
-    jit_apply(variables, tokens, 0, mutable=("cache",))
+    logits, v_upd = jit_apply(variables, tokens, 0, mutable=("cache",))
+
+    ids = jnp.argmax(logits, axis=-1)[0]
+    tokenizer.decode(ids)
+
+
+def main():
+
 
     model.apply(variables, tokens, 0, mutable=("cache",))
-    causal_mask = jax.lax.dynamic_slice(
-        self.causal_mask, (0, 0, start_pos, 0), (1, 1, q_len, kv_len)
-    )
-    mask = causal_mask
-
-    self = model
-    _bsz, seqlen = tokens.shape
-    x = self.tok_embeddings(tokens)
-    # mask = nn.make_causal_mask(jnp.ones((1, seqlen)))   # TODO: untested
-
-    self = model.layers[0].attention
-
-    tokens = tokenizer.encode("hello, he says").ids
-    tokens = jnp.asarray(tokens).reshape(1, -1)
-    h = model.tok_embeddings(tokens)
-    x = h
