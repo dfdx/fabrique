@@ -4,20 +4,21 @@ import jax
 import jax.numpy as jnp
 import jax.tree_util as tree_util
 from flax import linen as nn
-from tokenizers import Tokenizer
 from safetensors.flax import load, load_file
+from tokenizers import Tokenizer
 
 from fabrique.llama.model import ModelArgs, Transformer
 
 # BASE_DIR = "/home/devpod/.cache/huggingface/hub/models--microsoft--Phi-3-mini-128k-instruct/snapshots/f10fb29b79f038c78229ab4dcd9234a9666a770f/"
-BASE_DIR = "/home/devpod/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-8B-Instruct/snapshots/1448453bdb895762499deb4176c1dd83b145fac1/"
-TOKENIZER_PATH = BASE_DIR + "tokenizer.json"
-CONFIG_PATH = BASE_DIR + "config.json"
-
+MODEL_DIR = "/home/devpod/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-8B-Instruct/snapshots/1448453bdb895762499deb4176c1dd83b145fac1/"
+TOKENIZER_PATH = MODEL_DIR + "tokenizer.json"
+CONFIG_PATH = MODEL_DIR + "config.json"
 
 
 def main():
-    args = ModelArgs.from_file(CONFIG_PATH)
+    model_dir = MODEL_DIR
+
+    args = ModelArgs.from_file(CONFIG_PATH, max_batch_size=1, max_seq_len=512)
     tokenizer = Tokenizer.from_file(TOKENIZER_PATH)
     args.vocab_size = tokenizer.get_vocab_size()
     tokens = tokenizer.encode("frankenstein walks into a bar").ids
@@ -25,12 +26,19 @@ def main():
     rng = jax.random.PRNGKey(925)
     model = Transformer(args)
     variables = model.init(rng, tokens, 0)
-    params = variables["params"]
+    ref = variables["params"]
 
-    path = BASE_DIR + "model-00001-of-00002.safetensors"
-    plain = load_file(path)
+    # TODO: move it to tests
+    params = load_variables(RULES, model_dir)["params"]
+    jax.tree.map(lambda p, r: p.shape == r.shape, params, ref)
+    jax.tree.map(
+        lambda p, r: f"param = {p.shape}, ref = {r.shape}",
+        params["layers_0"],
+        ref["layers_0"],
+    )
 
-
+    rule = RULES[1]
+    safe_key = "model.layers.0.input_layernorm.weight"
 
 
 def main2():
@@ -73,4 +81,3 @@ def main2():
     tokens = jnp.asarray(tokens).reshape(1, -1)
     h = model.tok_embeddings(tokens)
     x = h
-
