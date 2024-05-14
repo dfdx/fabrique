@@ -1,5 +1,5 @@
-import math
 import json
+import math
 from dataclasses import dataclass
 from functools import partial
 from typing import Optional, Tuple
@@ -9,7 +9,6 @@ import jax
 import jax.numpy as jnp
 from flax.linen.attention import combine_masks
 from jax import lax
-
 
 #     {
 #   "architectures": [
@@ -38,7 +37,6 @@ from jax import lax
 #   "use_cache": true,
 #   "vocab_size": 128256
 # }
-
 
 
 @dataclass
