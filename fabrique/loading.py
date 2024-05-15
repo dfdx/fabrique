@@ -2,7 +2,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from typing import Callable, Dict, List
+from typing import Any, Callable, Dict, List
 
 import jax
 import safetensors.flax as st
@@ -56,7 +56,7 @@ def set_nested(nested: Dict, keys: List[str], val):
 
 
 def safe2jax(rules: List[ConversionRule], flat: Dict[str, jax.Array]):
-    params = {}
+    params: Dict[str, Any] = {}
     for safe_key, safe_val in flat.items():
         path, val = convert_safetensor(rules, safe_key, safe_val)
         fab_keys = path.split(".")
@@ -70,8 +70,8 @@ def load_params(rules: List[ConversionRule], model_dir: str, out=None):
     """
     with open(os.path.join(model_dir, "model.safetensors.index.json")) as fp:
         index = json.load(fp)
-    safe_files = set(index["weight_map"].values())
-    safe_files = [os.path.join(model_dir, filename) for filename in safe_files]
+    safe_files_ = set(index["weight_map"].values())
+    safe_files = [os.path.join(model_dir, filename) for filename in safe_files_]
     params = out or {}
     for path in safe_files:
         flat = st.load_file(path)

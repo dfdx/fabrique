@@ -26,7 +26,6 @@ class ModelArgs:
     max_seq_len: int = 2048
     dtype = jnp.bfloat16
 
-
     @staticmethod
     def from_file(config_file: str, **kwargs):
         """
@@ -69,7 +68,9 @@ class RMSNorm(nn.Module):
             weight (nn.Parameter): Learnable scaling parameter.
 
         """
-        self.weight = self.param("weight", lambda *args: jnp.ones(self.dim, dtype=self.dtype))
+        self.weight = self.param(
+            "weight", lambda *args: jnp.ones(self.dim, dtype=self.dtype)
+        )
 
     def _norm(self, x):
         """
@@ -245,15 +246,9 @@ class Attention(nn.Module):
             dtype=self.args.dtype,
         )
         self.wv = nn.Dense(
-            self.n_kv_heads * self.head_dim,
-            use_bias=False,
-            dtype=self.args.dtype
+            self.n_kv_heads * self.head_dim, use_bias=False, dtype=self.args.dtype
         )
-        self.wo = nn.Dense(
-            self.args.dim,
-            use_bias=False,
-            dtype=self.args.dtype
-        )
+        self.wo = nn.Dense(self.args.dim, use_bias=False, dtype=self.args.dtype)
         self.cache_k = self.variable(
             "cache",
             "cache_k",
@@ -390,21 +385,9 @@ class FeedForward(nn.Module):
             (hidden_dim + self.multiple_of - 1) // self.multiple_of
         )
 
-        self.w1 = nn.Dense(
-            hidden_dim,
-            use_bias=False,
-            dtype=self.dtype
-        )
-        self.w2 = nn.Dense(
-            self.dim,
-            use_bias=False,
-            dtype=self.dtype
-        )
-        self.w3 = nn.Dense(
-            hidden_dim,
-            use_bias=False,
-            dtype=self.dtype
-        )
+        self.w1 = nn.Dense(hidden_dim, use_bias=False, dtype=self.dtype)
+        self.w2 = nn.Dense(self.dim, use_bias=False, dtype=self.dtype)
+        self.w3 = nn.Dense(hidden_dim, use_bias=False, dtype=self.dtype)
 
     def __call__(self, x):
         return self.w2(nn.silu(self.w1(x)) * self.w3(x))
@@ -498,7 +481,9 @@ class Transformer(nn.Module):
         self.vocab_size = self.args.vocab_size
         self.n_layers = self.args.n_layers
 
-        self.tok_embeddings = nn.Embed(self.args.vocab_size, self.args.dim, dtype=self.args.dtype)
+        self.tok_embeddings = nn.Embed(
+            self.args.vocab_size, self.args.dim, dtype=self.args.dtype
+        )
 
         self.layers = [
             TransformerBlock(layer_id, self.args)

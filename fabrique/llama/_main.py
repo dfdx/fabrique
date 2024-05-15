@@ -8,17 +8,14 @@ from flax import linen as nn
 from safetensors.flax import load, load_file
 from tokenizers import Tokenizer
 
-from fabrique.llama.model import ModelArgs, Transformer
 from fabrique.llama.loading import RULES as LLAMA_RULES
+from fabrique.llama.model import ModelArgs, Transformer
 from fabrique.loading import load_params
 
 # BASE_DIR = "/home/devpod/.cache/huggingface/hub/models--microsoft--Phi-3-mini-128k-instruct/snapshots/f10fb29b79f038c78229ab4dcd9234a9666a770f/"
 MODEL_DIR = "/home/devpod/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-8B-Instruct/snapshots/1448453bdb895762499deb4176c1dd83b145fac1/"
 # TOKENIZER_PATH = MODEL_DIR + "tokenizer.json"
 # CONFIG_PATH = MODEL_DIR + "config.json"
-
-
-
 
 
 def main():
@@ -38,8 +35,6 @@ def main():
 
     ids = jnp.argmax(logits, axis=-1)[0]
     tokenizer.decode(ids)
-
-
 
 
 #     {
