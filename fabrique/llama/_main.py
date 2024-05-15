@@ -10,7 +10,7 @@ from tokenizers import Tokenizer
 
 from fabrique.llama.model import ModelArgs, Transformer
 from fabrique.llama.loading import RULES as LLAMA_RULES
-from fabrique.loading import load_variables
+from fabrique.loading import load_params
 
 # BASE_DIR = "/home/devpod/.cache/huggingface/hub/models--microsoft--Phi-3-mini-128k-instruct/snapshots/f10fb29b79f038c78229ab4dcd9234a9666a770f/"
 MODEL_DIR = "/home/devpod/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-8B-Instruct/snapshots/1448453bdb895762499deb4176c1dd83b145fac1/"
@@ -19,15 +19,6 @@ MODEL_DIR = "/home/devpod/.cache/huggingface/hub/models--meta-llama--Meta-Llama-
 
 
 
-class Llama:
-
-    def __init__(self, model_dir: str, **kwargs):
-        config_file = os.path.join(model_dir, "config.json")
-        tokenizer_file = os.path.join(model_dir, "tokenizer.json")
-        self.tokenizer = Tokenizer.from_file(tokenizer_file)
-        args = ModelArgs.from_file(config_file, **kwargs)
-        self.model = Transformer(args)
-        self.variables = load_variables(LLAMA_RULES, model_dir)
 
 
 def main():
@@ -49,7 +40,32 @@ def main():
     tokenizer.decode(ids)
 
 
-def main():
 
 
-    model.apply(variables, tokens, 0, mutable=("cache",))
+#     {
+#   "architectures": [
+#     "LlamaForCausalLM"
+#   ],
+#   "attention_bias": false,
+#   "attention_dropout": 0.0,
+#   "bos_token_id": 128000,
+#   "eos_token_id": 128001,
+#   "hidden_act": "silu",
+#   "hidden_size": 4096,
+#   "initializer_range": 0.02,
+#   "intermediate_size": 14336,
+#   "max_position_embeddings": 8192,
+#   "model_type": "llama",
+#   "num_attention_heads": 32,
+#   "num_hidden_layers": 32,
+#   "num_key_value_heads": 8,
+#   "pretraining_tp": 1,
+#   "rms_norm_eps": 1e-05,
+#   "rope_scaling": null,
+#   "rope_theta": 500000.0,
+#   "tie_word_embeddings": false,
+#   "torch_dtype": "bfloat16",
+#   "transformers_version": "4.40.0.dev0",
+#   "use_cache": true,
+#   "vocab_size": 128256
+# }
