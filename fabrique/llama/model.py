@@ -10,34 +10,6 @@ import jax.numpy as jnp
 from flax.linen.attention import combine_masks
 from jax import lax
 
-#     {
-#   "architectures": [
-#     "LlamaForCausalLM"
-#   ],
-#   "attention_bias": false,
-#   "attention_dropout": 0.0,
-#   "bos_token_id": 128000,
-#   "eos_token_id": 128001,
-#   "hidden_act": "silu",
-#   "hidden_size": 4096,
-#   "initializer_range": 0.02,
-#   "intermediate_size": 14336,
-#   "max_position_embeddings": 8192,
-#   "model_type": "llama",
-#   "num_attention_heads": 32,
-#   "num_hidden_layers": 32,
-#   "num_key_value_heads": 8,
-#   "pretraining_tp": 1,
-#   "rms_norm_eps": 1e-05,
-#   "rope_scaling": null,
-#   "rope_theta": 500000.0,
-#   "tie_word_embeddings": false,
-#   "torch_dtype": "bfloat16",
-#   "transformers_version": "4.40.0.dev0",
-#   "use_cache": true,
-#   "vocab_size": 128256
-# }
-
 
 @dataclass
 class ModelArgs:
@@ -82,6 +54,7 @@ class ModelArgs:
 class RMSNorm(nn.Module):
     dim: int
     eps: float = 1e-6
+    dtype: jnp.dtype = jnp.float32
 
     def setup(self):
         """
@@ -96,7 +69,7 @@ class RMSNorm(nn.Module):
             weight (nn.Parameter): Learnable scaling parameter.
 
         """
-        self.weight = self.param("weight", lambda *args: jnp.ones(self.dim))
+        self.weight = self.param("weight", lambda *args: jnp.ones(self.dim, dtype=self.dtype))
 
     def _norm(self, x):
         """
@@ -264,21 +237,22 @@ class Attention(nn.Module):
         self.wq = nn.Dense(
             self.n_heads * self.head_dim,
             use_bias=False,
-            # kernel_init=lambda x: x,
+            dtype=self.args.dtype,
         )
         self.wk = nn.Dense(
             self.n_kv_heads * self.head_dim,
             use_bias=False,
-            # kernel_init=lambda x: x,
+            dtype=self.args.dtype,
         )
         self.wv = nn.Dense(
             self.n_kv_heads * self.head_dim,
             use_bias=False,
-            # kernel_init=lambda x: x,
+            dtype=self.args.dtype
         )
         self.wo = nn.Dense(
             self.args.dim,
             use_bias=False,
+            dtype=self.args.dtype
         )
         self.cache_k = self.variable(
             "cache",
@@ -389,6 +363,7 @@ class FeedForward(nn.Module):
     hidden_dim: int
     multiple_of: int
     ffn_dim_multiplier: Optional[float]
+    dtype: jnp.dtype = jnp.float32
 
     def setup(self):
         """
@@ -418,14 +393,17 @@ class FeedForward(nn.Module):
         self.w1 = nn.Dense(
             hidden_dim,
             use_bias=False,
+            dtype=self.dtype
         )
         self.w2 = nn.Dense(
             self.dim,
             use_bias=False,
+            dtype=self.dtype
         )
         self.w3 = nn.Dense(
             hidden_dim,
             use_bias=False,
+            dtype=self.dtype
         )
 
     def __call__(self, x):
@@ -466,9 +444,10 @@ class TransformerBlock(nn.Module):
             hidden_dim=args.ffn_hidden_size,
             multiple_of=args.multiple_of,
             ffn_dim_multiplier=args.ffn_dim_multiplier,
+            dtype=self.args.dtype,
         )
-        self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
-        self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
+        self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps, dtype=args.dtype)
+        self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps, dtype=args.dtype)
 
     def __call__(
         self,
@@ -519,7 +498,7 @@ class Transformer(nn.Module):
         self.vocab_size = self.args.vocab_size
         self.n_layers = self.args.n_layers
 
-        self.tok_embeddings = nn.Embed(self.args.vocab_size, self.args.dim)
+        self.tok_embeddings = nn.Embed(self.args.vocab_size, self.args.dim, dtype=self.args.dtype)
 
         self.layers = [
             TransformerBlock(layer_id, self.args)

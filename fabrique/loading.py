@@ -7,6 +7,8 @@ from typing import Callable, Dict, List
 import jax
 import safetensors.flax as st
 
+from fabrique.utils import update_tree
+
 
 @dataclass
 class ConversionRule:
@@ -62,20 +64,7 @@ def safe2jax(rules: List[ConversionRule], flat: Dict[str, jax.Array]):
     return params
 
 
-# from https://stackoverflow.com/a/7205107/365872
-def merge_dicts_recur(a: dict, b: dict, path=[]):
-    for key in b:
-        if key in a:
-            if isinstance(a[key], dict) and isinstance(b[key], dict):
-                merge_dicts_recur(a[key], b[key], path + [str(key)])
-            elif a[key] != b[key]:
-                raise Exception("Conflict at " + ".".join(path + [str(key)]))
-        else:
-            a[key] = b[key]
-    return a
-
-
-def load_variables(rules: List[ConversionRule], model_dir: str):
+def load_params(rules: List[ConversionRule], model_dir: str, out=None):
     """
     Load Flax variables from a Huggingface model directory
     """
@@ -83,9 +72,9 @@ def load_variables(rules: List[ConversionRule], model_dir: str):
         index = json.load(fp)
     safe_files = set(index["weight_map"].values())
     safe_files = [os.path.join(model_dir, filename) for filename in safe_files]
-    params = {}
+    params = out or {}
     for path in safe_files:
         flat = st.load_file(path)
         new_params = safe2jax(rules, flat)
-        params = merge_dicts_recur(params, new_params)
-    return {"params": params}
+        update_tree(params, new_params)
+    return params
