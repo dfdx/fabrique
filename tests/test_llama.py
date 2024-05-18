@@ -9,7 +9,8 @@ from tokenizers import Tokenizer
 from fabrique.llama import Llama
 from fabrique.llama.model import ModelArgs, Transformer
 
-MODEL_DIR = "/home/devpod/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-8B-Instruct/snapshots/1448453bdb895762499deb4176c1dd83b145fac1/"
+MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+# TODO: get rid of absolute paths
 TOKENIZER_PATH = "/home/devpod/.cache/huggingface/hub/models--microsoft--Phi-3-mini-128k-instruct/snapshots/f10fb29b79f038c78229ab4dcd9234a9666a770f/tokenizer.json"
 
 
@@ -32,9 +33,8 @@ def test_jit_and_cache():
 
 
 def test_generate():
-    model_dir = MODEL_DIR
     kwargs = {"max_seq_len": 512, "max_batch_size": 1}
-    llama = Llama(model_dir, **kwargs)
+    llama = Llama.from_pretrained(MODEL_ID, **kwargs)
     prompt = "I will tell you a story about"
     full = llama.generate(prompt)
     assert isinstance(full, str)
