@@ -6,6 +6,7 @@ from typing import Any, Callable, Dict, List
 
 import jax
 import safetensors.flax as st
+from tqdm import tqdm
 
 from fabrique.utils import update_tree
 
@@ -73,7 +74,7 @@ def load_params(rules: List[ConversionRule], model_dir: str, out=None):
     safe_files_ = set(index["weight_map"].values())
     safe_files = [os.path.join(model_dir, filename) for filename in safe_files_]
     params = out or {}
-    for path in safe_files:
+    for path in tqdm(safe_files):
         flat = st.load_file(path)
         new_params = safe2jax(rules, flat)
         update_tree(params, new_params)
