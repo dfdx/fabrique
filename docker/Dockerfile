@@ -92,6 +92,8 @@ RUN pip install flax optax
 
 RUN pip install sentencepiece tokenizers
 
+RUN pip install huggingface-hub
+
 # fix torch version because updating it often leads to painful results
 # RUN pip install torch==2.0.0 torchvision lightning
 # RUN pip install transformers accelerate datasets

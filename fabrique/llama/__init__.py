@@ -3,6 +3,7 @@ import os
 
 import jax
 import jax.numpy as jnp
+from huggingface_hub import snapshot_download
 from tokenizers import Tokenizer
 
 from fabrique.generation import greedy
@@ -13,22 +14,35 @@ from fabrique.loading import load_params
 
 class Llama:
 
-    def __init__(self, model_dir: str, **kwargs):
+    def __init__(self, tokenizer, model, variables: dict, hf_config: dict):
+        self.tokenizer = tokenizer
+        self.model = model
+        self.variables = variables
+        self.hf_config = hf_config
+
+    @staticmethod
+    def from_file(model_dir: str, **model_args):
         config_file = os.path.join(model_dir, "config.json")
         with open(config_file) as fp:
-            self.hf_config = json.load(fp)
+            hf_config = json.load(fp)
 
         tokenizer_file = os.path.join(model_dir, "tokenizer.json")
         rng = jax.random.PRNGKey(925)
 
-        self.tokenizer = Tokenizer.from_file(tokenizer_file)
-        example_tokens = self.tokenizer.encode("Llama walks into a bar").ids
+        tokenizer = Tokenizer.from_file(tokenizer_file)
+        example_tokens = tokenizer.encode("Llama walks into a bar").ids
         example_tokens = jnp.asarray(example_tokens).reshape(1, -1)
 
-        args = ModelArgs.from_file(config_file, **kwargs)
-        self.model = Transformer(args)
-        self.variables = self.model.init(rng, example_tokens, 0)
-        load_params(RULES, model_dir, out=self.variables["params"])
+        args = ModelArgs.from_file(config_file, **model_args)
+        model = Transformer(args)
+        variables = model.init(rng, example_tokens, 0)
+        load_params(RULES, model_dir, out=variables["params"])
+        return Llama(tokenizer, model, variables, hf_config)
+
+    @staticmethod
+    def from_pretrained(repo_id: str, **model_args):
+        path = snapshot_download(repo_id, repo_type="model")
+        return Llama.from_file(path, **model_args)
 
     def generate(self, prompt: str, seed: int = 0):
         prompt_tokens = self.tokenizer.encode(prompt).ids
@@ -47,6 +61,9 @@ class Llama:
 def main():
     MODEL_DIR = "/home/devpod/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-8B-Instruct/snapshots/1448453bdb895762499deb4176c1dd83b145fac1/"
     model_dir = MODEL_DIR
+
+    model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
     kwargs = {"max_seq_len": 512, "max_batch_size": 1}
-    self = Llama(model_dir, **kwargs)
+    self = Llama.from_pretrained(model_id, **kwargs)
     prompt = "I will tell you a story about"
+    self.generate(prompt)
