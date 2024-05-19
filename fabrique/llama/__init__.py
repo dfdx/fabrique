@@ -56,14 +56,3 @@ class Llama:
             max_length=self.model.args.max_seq_len,
         )
         return self.tokenizer.decode(sequences[0])
-
-
-def main():
-    MODEL_DIR = "/home/devpod/.cache/huggingface/hub/models--meta-llama--Meta-Llama-3-8B-Instruct/snapshots/1448453bdb895762499deb4176c1dd83b145fac1/"
-    model_dir = MODEL_DIR
-
-    model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
-    kwargs = {"max_seq_len": 512, "max_batch_size": 1}
-    self = Llama.from_pretrained(model_id, **kwargs)
-    prompt = "I will tell you a story about"
-    self.generate(prompt)
