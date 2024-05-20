@@ -3,7 +3,7 @@
 	"build": {
 		"context": "../docker",
 		"dockerfile": "../docker/Dockerfile",
-		"target": "build-dev"
+		"target": "build-test"
 	},
 
 	"mounts": [

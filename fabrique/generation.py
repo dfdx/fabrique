@@ -78,7 +78,6 @@ def greedy(
         is_sent_finished=is_sent_finished,
         start_pos=0,
         cache=variables["cache"],
-        # model_kwargs={}
     )
 
     def greedy_search_cond_fn(state):
@@ -92,7 +91,16 @@ def greedy(
 
     def greedy_search_body_fn(state):
         """state update fn."""
-        print(">>>>>>>>>> compiling body function <<<<<<<<<<<<<<")
+        print(f">>>>>> ----------------------------")
+        print(f">>>>>> cur_len = {state.cur_len}")
+        print(f">>>>>> start_pos = {state.start_pos}")
+        print(f">>>>>> sequences.shape[1] = {state.sequences.shape[1]}")
+        # print(f">>>>>> sequences[:, :state.cur_len] = {state.sequences[:, :state.cur_len]}")
+        print(f">>>>>> running_token = {state.running_token}")
+        print(f">>>>>> cache shape = {state.cache['layers_0']['attention']['cache_k'].shape}")
+
+
+        # print(">>>>>>>>>> compiling body function <<<<<<<<<<<<<<")
         variables = {"params": params, "cache": state.cache}
         logits, v_upd = model.apply(
             variables, state.running_token, state.start_pos, mutable=("cache",)
@@ -258,16 +266,15 @@ def sample(
 
 def main():
     from fabrique.llama import Llama
-    from fabrique.generation import greedy
     model_id = "meta-llama/Meta-Llama-3-8B"
-    kwargs = {"max_seq_len": 512, "max_batch_size": 1}
+    kwargs = {"max_seq_len": 512, "max_batch_size": 1, "use_cache": False}
     llama = Llama.from_pretrained(model_id, **kwargs)
     model, variables = llama.model, llama.variables
 
     prompt = """Once upon a time"""
     prompt_tokens = llama.tokenizer.encode(prompt).ids
     prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
-    sequences = sample(
+    sequences = greedy(
         model,
         variables,
         prompt_tokens,
@@ -277,3 +284,14 @@ def main():
     )
     out = llama.tokenizer.decode(sequences[0])
     print(out)
+
+
+    pad_token_id=llama.hf_config["eos_token_id"]
+    eos_token_id=llama.hf_config["eos_token_id"]
+    max_length=llama.model.args.max_seq_len
+
+    # TODO: check if we update start_pos and cur_len properly when using cache
+    # what start_pos even should be in this case? index of the last generated token?
+    # looks like that, but need to re-check
+
+    # TODO: why results are different with and without cache? compare them in runtim
