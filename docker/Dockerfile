@@ -114,4 +114,9 @@ FROM build-base AS build-dev
 
 RUN pip install pytest ipython mypy black isort
 
+FROM build-dev AS build-test
+
+RUN pip install torch
+RUN pip install transformers
+
 CMD ["echo", "Explore!"]
