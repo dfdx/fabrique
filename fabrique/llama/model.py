@@ -2,15 +2,14 @@ import json
 import math
 from dataclasses import dataclass
 from functools import partial
-from typing import Optional, Tuple
+from typing import Optional
 
 import flax.linen as nn
 import jax
 import jax.numpy as jnp
+import numpy as np
 from flax.linen.attention import combine_masks
 from jax import lax
-import numpy as np
-from einops import rearrange, repeat
 
 
 @dataclass
@@ -27,6 +26,7 @@ class ModelArgs:
     max_batch_size: int = 32
     max_seq_len: int = 2048
     dtype = jnp.bfloat16
+    param_dtype = jnp.float32
     use_cache: bool = True
 
     @staticmethod
@@ -57,7 +57,7 @@ class ModelArgs:
 class RMSNorm(nn.Module):
     dim: int
     eps: float = 1e-6
-    dtype: jnp.dtype = jnp.float32
+    param_dtype: jnp.dtype = jnp.float32
 
     def setup(self):
         """
@@ -73,7 +73,7 @@ class RMSNorm(nn.Module):
 
         """
         self.weight = self.param(
-            "weight", lambda *args: jnp.ones(self.dim, dtype=self.dtype)
+            "weight", lambda *args: jnp.ones(self.dim, dtype=self.param_dtype)
         )
 
     def _norm(self, x):
@@ -106,109 +106,6 @@ class RMSNorm(nn.Module):
         return output * self.weight
 
 
-# def polar(r, theta):
-#     return r * jnp.exp(1j * theta)
-
-
-
-# TODO: undo!
-def print_var(name: str, x):
-    print(f"{name}: mean={x.mean()}, var={x.var()}")
-
-
-# @partial(jax.jit, static_argnums=[0, 1])   # TODO: perhaps we can remove this decorator?
-# def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
-#     """
-#     Precompute the frequency array for complex exponentials (cis) with given dimensions.
-
-#     This function calculates a frequency array with complex exponentials using the given dimension 'dim'
-#     and the end index 'end'. The 'theta' parameter scales the frequencies.
-#     The returned array contains complex values in complex64 data type.
-
-#     Args:
-#         dim (int): Dimension of the frequency array.
-#         end (int): End index for precomputing frequencies.
-#         theta (float, optional): Scaling factor for frequency computation. Defaults to 10000.0.
-
-#     Returns:
-#         jax.Array: Precomputed frequency array with complex exponentials.
-#     """
-#     freqs = 1.0 / (
-#         theta ** (jnp.arange(0, dim, 2)[: (dim // 2)].astype("float32") / dim)
-#     )
-#     t = jnp.arange(end)
-#     freqs = jnp.outer(t, freqs).astype("float32")
-#     freqs_cis = polar(jnp.ones(freqs.shape, dtype=freqs.dtype), freqs)  # complex64
-#     print_var("freqs_cis", freqs_cis)
-#     return freqs_cis
-
-
-# def reshape_for_broadcast(freqs_cis: jax.Array, x: jax.Array):
-#     """
-#     Reshape frequency array for broadcasting it with another array.
-
-#     This function reshapes the frequency array to have the same shape as the target array 'x'
-#     for the purpose of broadcasting the frequency array during element-wise operations.
-
-#     Args:
-#         freqs_cis (jax.Array): Frequency array to be reshaped.
-#         x (jax.Array): Target array for broadcasting compatibility.
-
-#     Returns:
-#         jax.Array: Reshaped frequency array.
-
-#     Raises:
-#         AssertionError: If the frequency array doesn't match the expected shape.
-#         AssertionError: If the target array 'x' doesn't have the expected number of dimensions.
-#     """
-#     ndim = x.ndim
-#     assert 0 <= 1 < ndim
-#     assert freqs_cis.shape == (x.shape[1], x.shape[-1])
-#     shape = [d if i == 1 or i == ndim - 1 else 1 for i, d in enumerate(x.shape)]
-#     return freqs_cis.reshape(*shape)
-
-
-# def view_as_complex(x: jax.Array):
-#     return jax.lax.complex(x[..., 0], x[..., 1])
-
-
-# def view_as_real(cx: jax.Array):
-#     return jnp.stack([jnp.real(cx), jnp.imag(cx)], axis=-1)
-
-
-# def apply_rotary_emb(
-#     xq: jax.Array,
-#     xk: jax.Array,
-#     freqs_cis: jax.Array,
-# ) -> Tuple[jax.Array, jax.Array]:
-#     """
-#     Apply rotary embeddings to input arrays using the given frequency array.
-
-#     This function applies rotary embeddings to the given query 'xq' and key 'xk' arrays using the provided
-#     frequency array 'freqs_cis'. The input arrays are reshaped as complex numbers, and the frequency array
-#     is reshaped for broadcasting compatibility. The resulting arrays contain rotary embeddings and are
-#     returned as real arrays.
-
-#     Args:
-#         xq (jax.Array): Query array to apply rotary embeddings.
-#         xk (jax.Array): Key array to apply rotary embeddings.
-#         freqs_cis (jax.Array): Precomputed frequency array for complex exponentials.
-
-#     Returns:
-#         Tuple[jax.Array, jax.Array]: Tuple of modified query array and key array with rotary embeddings.
-#     """
-#     xq_ = view_as_complex(xq.astype("float32").reshape(*xq.shape[:-1], -1, 2))
-#     xk_ = view_as_complex(xk.astype("float32").reshape(*xk.shape[:-1], -1, 2))
-#     freqs_cis = reshape_for_broadcast(freqs_cis, xq_)
-#     xq_out = view_as_real(xq_ * freqs_cis)
-#     xq_out = xq_out.reshape(*xq_out.shape[:3], -1)
-#     xk_out = view_as_real(xk_ * freqs_cis)
-#     xk_out = xk_out.reshape(*xk_out.shape[:3], -1)
-#     return xq_out.astype(xq.dtype), xk_out.astype(xk.dtype)
-
-
-## >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
 def create_sinusoidal_positions(num_pos, dim):
     inv_freq = 1.0 / (10000 ** (np.arange(0, dim, 2) / dim))
     freqs = np.einsum("i , j -> i j", np.arange(num_pos), inv_freq).astype("float32")
@@ -222,20 +119,18 @@ def create_sinusoidal_positions(num_pos, dim):
 def rotate_half(tensor):
     """Rotates half the hidden dims of the input."""
     rotate_half_tensor = jnp.concatenate(
-        (-tensor[..., tensor.shape[-1] // 2 :],
-         tensor[..., : tensor.shape[-1] // 2]), axis=-1
+        (-tensor[..., tensor.shape[-1] // 2 :], tensor[..., : tensor.shape[-1] // 2]),
+        axis=-1,
     )
     return rotate_half_tensor
 
 
 def apply_rotary_pos_emb(xq: jax.Array, xk: jax.Array, sincos, start_pos: int):
     dtype = xq.dtype
-    assert len(xq.shape) >= 4    # (*bs, seqlen, n_heads, head_dim)
+    assert len(xq.shape) >= 4  # (*bs, seqlen, n_heads, head_dim)
     seqlen = xq.shape[-3]
 
-    sincos_slice = lax.dynamic_slice(
-        sincos, (start_pos, 0), (seqlen, sincos.shape[-1])
-    )
+    sincos_slice = lax.dynamic_slice(sincos, (start_pos, 0), (seqlen, sincos.shape[-1]))
     sincos_slice = sincos_slice[jnp.newaxis, :, jnp.newaxis, :]
     sin_pos, cos_pos = jnp.split(sincos_slice, 2, axis=-1)
     xq = (xq * cos_pos) + (rotate_half(xq) * sin_pos)
@@ -243,10 +138,6 @@ def apply_rotary_pos_emb(xq: jax.Array, xk: jax.Array, sincos, start_pos: int):
     xq = jnp.asarray(xq, dtype=dtype)
     xk = jnp.asarray(xk, dtype=dtype)
     return xq, xk
-
-
-
-## <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
 
 def repeat_kv(x: jax.Array, n_rep: int) -> jax.Array:
@@ -288,20 +179,17 @@ class Attention(nn.Module):
         self.n_rep = self.n_heads // self.n_kv_heads
         self.head_dim = self.args.dim // self.n_heads
 
-        self.wq = nn.Dense(
-            self.n_heads * self.head_dim,
+        dense = partial(
+            nn.Dense,
             use_bias=False,
             dtype=self.args.dtype,
+            param_dtype=self.args.param_dtype,
+            kernel_init=jax.nn.initializers.normal(0.02),  # 0.02 - initializer range
         )
-        self.wk = nn.Dense(
-            self.n_kv_heads * self.head_dim,
-            use_bias=False,
-            dtype=self.args.dtype,
-        )
-        self.wv = nn.Dense(
-            self.n_kv_heads * self.head_dim, use_bias=False, dtype=self.args.dtype
-        )
-        self.wo = nn.Dense(self.args.dim, use_bias=False, dtype=self.args.dtype)
+        self.wq = dense(self.n_heads * self.head_dim)
+        self.wk = dense(self.n_kv_heads * self.head_dim)
+        self.wv = dense(self.n_kv_heads * self.head_dim)
+        self.wo = dense(self.args.dim)
         # if use_cache == False, we still create the variable to keep the same structure
         # but set its length to zero
         cache_len = self.args.max_seq_len if self.args.use_cache else 0
@@ -358,7 +246,7 @@ class Attention(nn.Module):
         x: jax.Array,
         start_pos: int,
         sincos: jax.Array,
-        mask: Optional[jax.Array],
+        full_causal_mask: jax.Array,
     ):
         """
         Forward pass of the attention module.
@@ -366,24 +254,32 @@ class Attention(nn.Module):
         Args:
             x (jax.Array): Input array.
             start_pos (int): Starting position for caching.
-            freqs_cis (jax.Array): Precomputed frequency array.
-            mask (jax.Array, optional): Attention mask array.
+            sincos (jax.Array): Precomputed frequency array.
+            full_causal_mask (jax.Array): Causal mask of size (max_seq_len x max_seq_len).
 
         Returns:
             jax.Array: Output array after attention.
         """
-        bsz, seqlen, _ = x.shape
+        bsz, seq_len, _ = x.shape
+        q_len = seq_len
+        max_kv_len = self.args.max_seq_len if self.args.use_cache else q_len
+
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
-        xq = xq.reshape(bsz, seqlen, self.n_heads, self.head_dim)
-        xk = xk.reshape(bsz, seqlen, self.n_kv_heads, self.head_dim)
-        xv = xv.reshape(bsz, seqlen, self.n_kv_heads, self.head_dim)
+        xq = xq.reshape(bsz, seq_len, self.n_heads, self.head_dim)
+        xk = xk.reshape(bsz, seq_len, self.n_kv_heads, self.head_dim)
+        xv = xv.reshape(bsz, seq_len, self.n_kv_heads, self.head_dim)
 
         xq, xk = apply_rotary_pos_emb(xq, xk, sincos, start_pos)
 
-        # shape of kv after concatenating to the cache is
-        # [bs, max_seq_len, n_heads, head_dim]
+        causal_mask = jax.lax.dynamic_slice(
+            full_causal_mask, (0, 0, start_pos, 0), (1, 1, q_len, max_kv_len)
+        )
+
+        mask = causal_mask
         if self.args.use_cache:
+            # shape of kv after concatenating to the cache is
+            # [bs, max_seq_len, n_heads, head_dim]
             xk, xv, mask = self._concatenate_to_cache(xk, xv, xq, mask, start_pos)
 
         # repeat k/v heads if n_kv_heads < n_heads
@@ -396,14 +292,20 @@ class Attention(nn.Module):
 
         scores = jnp.matmul(xq, jnp.moveaxis(xk, 2, 3)) / math.sqrt(self.head_dim)
 
-        if mask is not None:
+        if mask is not None:  # should we even allow mask to be None?
             # so far we used mask with 1s to mean "attend" and 0s to mean "ignore"
             # to apply it to scores, we convert it to 0s and -inf accordingly
-            mask_ = jnp.where(mask == 0, -jnp.inf, 0)
-            scores = scores + mask_  # (bs, n_heads, q_len, kv_len)
+            imask = jnp.where(mask == 0, -jnp.inf, 0)
+            scores = scores + imask  # (bs, n_heads, q_len, kv_len)
         scores = nn.softmax(scores.astype("float32"), axis=-1).astype(xq.dtype)
-        output = jnp.matmul(scores, xv)  # (bs, n_heads, q_len, head_dim)
-        output = jnp.moveaxis(output, 1, 2).ravel().reshape(bsz, seqlen, -1)
+
+        # output = jnp.matmul(scores, xv)  # (bs, n_heads, q_len, head_dim)??
+        # output = jnp.moveaxis(output, 1, 2).ravel().reshape(bsz, seq_len, -1)
+        output = jnp.einsum(
+            "...hqk,...hkd->...qhd", scores, xv
+        )  # (bs, q_len, n_heads, head_dim)
+        output = output.reshape(output.shape[:2] + (self.args.dim,))
+
         return self.wo(output)
 
 
@@ -412,7 +314,8 @@ class FeedForward(nn.Module):
     hidden_dim: int
     multiple_of: int
     ffn_dim_multiplier: Optional[float]
-    dtype: jnp.dtype = jnp.float32
+    dtype: jnp.dtype = jnp.bfloat16
+    param_dtype: jnp.dtype = jnp.float32
 
     def setup(self):
         """
@@ -439,9 +342,15 @@ class FeedForward(nn.Module):
             (hidden_dim + self.multiple_of - 1) // self.multiple_of
         )
 
-        self.w1 = nn.Dense(hidden_dim, use_bias=False, dtype=self.dtype)
-        self.w2 = nn.Dense(self.dim, use_bias=False, dtype=self.dtype)
-        self.w3 = nn.Dense(hidden_dim, use_bias=False, dtype=self.dtype)
+        self.w1 = nn.Dense(
+            hidden_dim, use_bias=False, param_dtype=self.param_dtype, dtype=self.dtype
+        )
+        self.w2 = nn.Dense(
+            self.dim, use_bias=False, param_dtype=self.param_dtype, dtype=self.dtype
+        )
+        self.w3 = nn.Dense(
+            hidden_dim, use_bias=False, param_dtype=self.param_dtype, dtype=self.dtype
+        )
 
     def __call__(self, x):
         return self.w2(nn.silu(self.w1(x)) * self.w3(x))
@@ -476,22 +385,26 @@ class TransformerBlock(nn.Module):
         self.head_dim = args.dim // args.n_heads
         self.attention = Attention(args)
         self.feed_forward = FeedForward(
-            dim=args.dim,    # TODO: should be intermediate state instead??
-            # hidden_dim=4 * args.dim,
+            dim=args.dim,
             hidden_dim=args.ffn_hidden_size,
             multiple_of=args.multiple_of,
             ffn_dim_multiplier=args.ffn_dim_multiplier,
             dtype=self.args.dtype,
+            param_dtype=self.args.param_dtype,
         )
-        self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps, dtype=args.dtype)
-        self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps, dtype=args.dtype)
+        self.attention_norm = RMSNorm(
+            args.dim, eps=args.norm_eps, param_dtype=args.param_dtype
+        )
+        self.ffn_norm = RMSNorm(
+            args.dim, eps=args.norm_eps, param_dtype=args.param_dtype
+        )
 
     def __call__(
         self,
         x: jax.Array,
         start_pos: int,
         sincos: jax.Array,
-        mask: Optional[jax.Array],
+        full_causal_mask: jax.Array,
     ):
         """
         Perform a forward pass through the TransformerBlock.
@@ -506,7 +419,9 @@ class TransformerBlock(nn.Module):
             jax.Array: Output tensor after applying attention and feedforward layers.
 
         """
-        h = x + self.attention(self.attention_norm(x), start_pos, sincos, mask)
+        h = x + self.attention(
+            self.attention_norm(x), start_pos, sincos, full_causal_mask
+        )
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
 
@@ -535,9 +450,7 @@ class Transformer(nn.Module):
         self.vocab_size = self.args.vocab_size
         self.n_layers = self.args.n_layers
 
-        self.tok_embeddings = nn.Embed(
-            self.args.vocab_size, self.args.dim, dtype=self.args.dtype
-        )
+        self.tok_embeddings = nn.Embed(self.args.vocab_size, self.args.dim)
 
         self.layers = [
             TransformerBlock(layer_id, self.args)
@@ -547,13 +460,9 @@ class Transformer(nn.Module):
         self.norm = RMSNorm(self.args.dim, eps=self.args.norm_eps)
         self.output = nn.Dense(self.args.vocab_size, use_bias=False)
 
-        # self.freqs_cis = precompute_freqs_cis(
-        #     # Note that self.params.max_seq_len is multiplied by 2 because the token limit for the Llama 2 generation of models is 4096.
-        #     # Adding this multiplier instead of using 4096 directly allows for dynamism of token lengths while training or fine-tuning.
-        #     self.args.dim // self.args.n_heads,
-        #     self.args.max_seq_len * 2,
-        # )
-        self.sincos = create_sinusoidal_positions(self.args.max_seq_len, self.args.dim // self.args.n_heads)
+        self.sincos = create_sinusoidal_positions(
+            self.args.max_seq_len, self.args.dim // self.args.n_heads
+        )
         self.causal_mask = nn.make_causal_mask(
             jnp.ones((1, self.args.max_seq_len), dtype="bool"), dtype="bool"
         )
@@ -570,14 +479,9 @@ class Transformer(nn.Module):
             jax.Array: Output logits after applying the Transformer model.
         """
         _bsz, seq_len = tokens.shape
-        q_len = seq_len
         h = self.tok_embeddings(tokens)
-        kv_len = self.args.max_seq_len if self.args.use_cache else q_len
-        causal_mask = jax.lax.dynamic_slice(
-            self.causal_mask, (0, 0, start_pos, 0), (1, 1, q_len, kv_len)
-        )
         for layer in self.layers:
-            h = layer(h, start_pos, self.sincos, causal_mask)
+            h = layer(h, start_pos, self.sincos, self.causal_mask)
         h = self.norm(h)
         output = self.output(h).astype("float32")
         return output

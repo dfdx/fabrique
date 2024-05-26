@@ -1,15 +1,11 @@
-from functools import partial
-
 import jax
 import jax.numpy as jnp
-import jax.tree_util as tree_util
-from flax import linen as nn
 from tokenizers import Tokenizer
 
 from fabrique.llama import Llama
 from fabrique.llama.model import ModelArgs, Transformer
 
-MODEL_ID = "meta-llama/Meta-Llama-3-8B-Instruct"
+MODEL_ID = "meta-llama/Meta-Llama-3-8B"
 # TODO: get rid of absolute paths
 TOKENIZER_PATH = "/home/devpod/.cache/huggingface/hub/models--microsoft--Phi-3-mini-128k-instruct/snapshots/f10fb29b79f038c78229ab4dcd9234a9666a770f/tokenizer.json"
 
@@ -33,8 +29,14 @@ def test_jit_and_cache():
 
 
 def test_generate():
-    kwargs = {"max_seq_len": 512, "max_batch_size": 1}
+    kwargs = {"max_seq_len": 32, "max_batch_size": 1}
     llama = Llama.from_pretrained(MODEL_ID, **kwargs)
     prompt = "I will tell you a story about"
-    full = llama.generate(prompt)
-    assert isinstance(full, str)
+    result = llama.generate(prompt)
+    assert isinstance(result, str)
+    expected = (
+        "I will tell you a story about a man who was a great leader. "
+        + "He was a man who was always looking for ways to improve himself "
+        + "and his team"
+    )
+    assert result == expected

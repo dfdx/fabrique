@@ -1,20 +1,23 @@
-from multimethod import multimethod
 import re
-import numpy as np
+
 import jax
 import jax.numpy as jnp
+import numpy as np
 import torch
 import torch.nn as tnn
-
+from multimethod import multimethod
 
 ###############################################################################
 #                              dtype conversions                              #
 ###############################################################################
 
+
 def pt2jax_dtype(pt_dtype: torch.dtype):
     if not isinstance(pt_dtype, torch.dtype):
-        raise ValueError(f"The argument to to_jax_dtype() must be an instance of " +
-                         f"torch.dtype, but instead {type(pt_dtype)} was received")
+        raise ValueError(
+            f"The argument to to_jax_dtype() must be an instance of "
+            + f"torch.dtype, but instead {type(pt_dtype)} was received"
+        )
     # not using dicts because dtypes don't have stable hash
     if pt_dtype == torch.float32:
         return jnp.float32
@@ -28,8 +31,10 @@ def pt2jax_dtype(pt_dtype: torch.dtype):
 
 def jax2pt_dtype(dtype: jnp.dtype):
     if not isinstance(dtype, jnp.dtype):
-        raise ValueError(f"The argument to to_pytorch_dtype() must be an instance of " +
-                         f"jnp.dtype, but instead {type(dtype)} was received")
+        raise ValueError(
+            f"The argument to to_pytorch_dtype() must be an instance of "
+            + f"jnp.dtype, but instead {type(dtype)} was received"
+        )
     # not using dicts because dtypes don't have stable hash
     if dtype == jnp.float32:
         return torch.float32
@@ -44,6 +49,7 @@ def jax2pt_dtype(dtype: jnp.dtype):
 ###############################################################################
 #                              array conversions                              #
 ###############################################################################
+
 
 def jax2pt(x: jax.Array):
     if x.dtype == jnp.bfloat16:
@@ -66,6 +72,7 @@ def pt2jax(pt_x: torch.Tensor):
 ###############################################################################
 #                filling PyTorch objects with JAX params                      #
 ###############################################################################
+
 
 @multimethod
 def fill_pytorch(dst: tnn.Linear, params):
@@ -108,6 +115,7 @@ def convert_to_nested(flat: dict):
     Convert flat structure of PyTorch state dict to
     nested structure of JAX params.
     """
+
     def join_numbers(key_seq):
         # ["layer", "0", ...] -> ["layer_0", ...]
         assert len(key_seq) > 0 and not key_seq[0].isnumeric()
@@ -118,6 +126,7 @@ def convert_to_nested(flat: dict):
             else:
                 out.append(key)
         return out
+
     nested = {}
     for key, val in flat.items():
         key_seq = key.split(".")
@@ -132,10 +141,10 @@ def convert_to_nested(flat: dict):
 
 
 def convert_linear(state: dict):
-    assert "bias" not in state, "Convertion of bias in torch.nn.Linear is not supported yet"
-    return {
-        "kernel": pt2jax(state["weight"].T)
-    }
+    assert (
+        "bias" not in state
+    ), "Convertion of bias in torch.nn.Linear is not supported yet"
+    return {"kernel": pt2jax(state["weight"].T)}
 
 
 def convert_attention(state: dict):
@@ -155,6 +164,7 @@ def convert_feed_forward(state: dict):
         "w2": convert_linear(state["w2"]),
         "w3": convert_linear(state["w3"]),
     }
+
 
 def convert_attention_norm(state: dict):
     return {
@@ -190,7 +200,9 @@ def convert_norm(state: dict):
 
 
 def convert_transformer(state: dict):
-    layers = {k: convert_layer(state[k]) for k, v in state.items() if k.startswith("layers_")}
+    layers = {
+        k: convert_layer(state[k]) for k, v in state.items() if k.startswith("layers_")
+    }
     return {
         "tok_embeddings": convert_tok_embeddings(state["tok_embeddings"]),
         "norm": convert_norm(state["norm"]),

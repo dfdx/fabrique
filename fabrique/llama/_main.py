@@ -1,6 +1,7 @@
 import jax
 import jax.numpy as jnp
 
+
 def top_level(x: jax.Array):
     print("compiling")
     return x * 2
@@ -10,6 +11,7 @@ def outer(a: jax.Array):
     def inner(x: jax.Array):
         print("compiling")
         return x * 2
+
     print(f"id(inner) = {id(inner)}")
     print(f"hash(inner) = {hash(inner)}")
     jitted_inner = jax.jit(inner)
@@ -21,15 +23,17 @@ def main():
     outer(a)
 
 
-
 def main():
-    import os, sys
+    import os
+    import sys
+
     print(os.getcwd())
     print(sys.path)
     sys.path.append("/workspaces/fabrique")
 
-    from fabrique.llama import Llama
     from fabrique.generation import greedy
+    from fabrique.llama import Llama
+
     model_id = "meta-llama/Meta-Llama-3-8B"
     kwargs = {"max_seq_len": 512, "max_batch_size": 1}
     llama = Llama.from_pretrained(model_id, **kwargs)
