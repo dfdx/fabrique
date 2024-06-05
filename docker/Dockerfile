@@ -92,7 +92,7 @@ RUN pip install flax optax
 
 RUN pip install sentencepiece tokenizers
 
-RUN pip install huggingface-hub
+RUN pip install safetensors huggingface-hub
 
 # fix torch version because updating it often leads to painful results
 # RUN pip install torch==2.0.0 torchvision lightning
@@ -113,5 +113,10 @@ RUN echo 'export PATH=/usr/local/cuda/bin:${PATH}' >> ${HOME}/.bashrc
 FROM build-base AS build-dev
 
 RUN pip install pytest ipython mypy black isort
+
+FROM build-dev AS build-test
+
+RUN pip install torch
+RUN pip install transformers
 
 CMD ["echo", "Explore!"]
