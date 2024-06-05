@@ -12,22 +12,32 @@ from fabrique.utils import update_tree
 
 
 @dataclass
+class RuleIgnore:
+    pass
+
+
+IGNORE = RuleIgnore()
+
+
+@dataclass
 class ConversionRule:
     safe_pattern: str
-    fab_pattern: str
+    fab_pattern: str | RuleIgnore
     converter: Callable | None = None
 
     @property
     def safe_regexp(self):
         pat = self.safe_pattern
-        pat = pat.replace(".", "\.")
-        pat = pat.replace("{n}", "(?P<n>\d+)")
+        pat = pat.replace(".", "\\.")
+        pat = pat.replace("{n}", "(?P<n>\\d+)")
         pat = "^" + pat + "$"
         return re.compile(pat)
 
 
 def maybe_apply_rule(rule: ConversionRule, safe_key: str, safe_val):
     if m := re.match(rule.safe_regexp, safe_key):
+        if rule.fab_pattern == IGNORE:
+            return "", IGNORE
         path = rule.fab_pattern.format(**m.groupdict())
         val = rule.converter(safe_val) if rule.converter else safe_val
         return path, val
@@ -60,8 +70,9 @@ def safe2jax(rules: List[ConversionRule], flat: Dict[str, jax.Array]):
     params: Dict[str, Any] = {}
     for safe_key, safe_val in flat.items():
         path, val = convert_safetensor(rules, safe_key, safe_val)
-        fab_keys = path.split(".")
-        set_nested(params, fab_keys, val)
+        if val is not IGNORE:
+            fab_keys = path.split(".")
+            set_nested(params, fab_keys, val)
     return params
 
 

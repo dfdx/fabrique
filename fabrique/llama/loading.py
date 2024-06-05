@@ -1,10 +1,12 @@
 import jax.numpy as jnp
 
+from fabrique.loading import IGNORE
 from fabrique.loading import ConversionRule as R
 
 # fmt: off
 RULES = [
     R("model.embed_tokens.weight", "tok_embeddings.embedding"),
+    R("model.layers.{n}.self_attn.rotary_emb.inv_freq", IGNORE),
     R("model.layers.{n}.self_attn.q_proj.weight", "layers_{n}.attention.wq.kernel", jnp.transpose),
     R("model.layers.{n}.self_attn.k_proj.weight", "layers_{n}.attention.wk.kernel", jnp.transpose),
     R("model.layers.{n}.self_attn.v_proj.weight", "layers_{n}.attention.wv.kernel", jnp.transpose),
@@ -16,6 +18,5 @@ RULES = [
     R("model.layers.{n}.post_attention_layernorm.weight", "layers_{n}.ffn_norm.weight"),
     R("lm_head.weight", "output.kernel", jnp.transpose),
     R("model.norm.weight", "norm.weight"),
-
 ]
 # fmt: on

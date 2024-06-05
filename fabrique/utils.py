@@ -20,3 +20,14 @@ def update_tree(a: dict, b: dict):
             update_tree(a[key], b[key])
         else:
             a[key] = b[key]
+
+
+def print_var(name: str, x):
+    """
+    Print some of the array properties. Useful for print-based debuging
+    (which you normally shouldn't do)
+    """
+    if x is not None:
+        print(f"{name}: mean={x.mean()}, shape={x.shape}, dtype={x.dtype}")
+    else:
+        print(f"{name} = {x}")
