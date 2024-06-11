@@ -58,16 +58,8 @@ RUN apt update && apt install -y --no-install-recommends \
 RUN apt-get update
 RUN apt-get install -y git openssh-server
 RUN apt-get install -y python3 python3-pip python-is-python3
-RUN apt-get install -y jq
-RUN pip install yq==3.1.1
-
-## Install PostgreSQL client
-
-RUN apt install -y postgresql-common
-RUN /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-
-RUN apt update
-RUN apt install -y postgresql postgresql-14-pgvector
+# RUN apt-get install -y jq
+# RUN pip install yq==3.1.1
 
 ## Add user & enable sudo
 
@@ -86,18 +78,26 @@ WORKDIR /home/${user}
 RUN pip install --upgrade pip
 RUN pip install wheel
 
-# jax needs to be installed first because otherwise torch dependencies will force older version of jax
-RUN pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-RUN pip install flax optax
 
-RUN pip install sentencepiece tokenizers
+# add specific version of JAX directry to the container
+RUN pip install jax["cuda12"]==0.4.29
 
-RUN pip install safetensors huggingface-hub
+COPY --chown=${user}:${user} ./pyproject.toml /home/${user}/
+RUN pip install pip-tools
+RUN python -m piptools compile --extra dev -o requirements.txt pyproject.toml
+RUN pip install -r requirements.txt
 
-# fix torch version because updating it often leads to painful results
-# RUN pip install torch==2.0.0 torchvision lightning
-# RUN pip install transformers accelerate datasets
-# RUN pip install einops
+
+# RUN poetry install
+
+# # jax needs to be installed first because otherwise torch dependencies will force older version of jax
+# RUN pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+# RUN pip install flax optax
+
+# RUN pip install sentencepiece tokenizers
+
+# RUN pip install safetensors huggingface-hub
+
 
 
 ## Post-install setup
@@ -112,11 +112,11 @@ RUN echo 'export PATH=/usr/local/cuda/bin:${PATH}' >> ${HOME}/.bashrc
 
 FROM build-base AS build-dev
 
-RUN pip install pytest ipython mypy black isort
+# RUN pip install pytest ipython mypy black isort
 
 FROM build-dev AS build-test
 
-RUN pip install torch
-RUN pip install transformers
+# RUN pip install torch
+# RUN pip install transformers
 
 CMD ["echo", "Explore!"]

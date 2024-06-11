@@ -36,7 +36,7 @@ class ConversionRule:
 
 def maybe_apply_rule(rule: ConversionRule, safe_key: str, safe_val):
     if m := re.match(rule.safe_regexp, safe_key):
-        if rule.fab_pattern == IGNORE:
+        if isinstance(rule.fab_pattern, RuleIgnore):
             return "", IGNORE
         path = rule.fab_pattern.format(**m.groupdict())
         val = rule.converter(safe_val) if rule.converter else safe_val

@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fabrique"
+version = "0.1.0"
+description = "Research-friendly implementations of LLMs in JAX"
+readme = "README.md"
+requires-python = ">=3.10.0"
+dependencies = [
+    "flax>=0.8.4",
+    "optax>=0.2.2",
+    "tokenizers>=0.19.1",
+    "safetensors>=0.4.3",
+    "huggingface-hub>=0.23.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ipython",
+    "mypy>=1.9.0",
+    "mypy-extensions>=1.0.0",
+    "black",
+    "isort",
+]
+
+[tool.setuptools.packages]
+find = {}
+
+
+[tool.mypy]
+
+[[tool.mypy.overrides]]
+module = "tokenizers.*,huggingface_hub.*,transformers.*"
+ignore_missing_imports = true
