@@ -1,4 +1,3 @@
-
 # devel version with DNN is required for JIT compilation in some cases
 # FROM nvidia/cuda:12.4.1-cudnn9-devel-ubuntu22.04 AS build-base
 FROM nvidia/cuda:12.4.1-devel-ubuntu22.04 AS build-base
@@ -88,15 +87,6 @@ RUN python -m piptools compile --extra dev -o requirements.txt pyproject.toml
 RUN pip install -r requirements.txt
 
 
-# RUN poetry install
-
-# # jax needs to be installed first because otherwise torch dependencies will force older version of jax
-# RUN pip install --upgrade "jax[cuda12_pip]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-# RUN pip install flax optax
-
-# RUN pip install sentencepiece tokenizers
-
-# RUN pip install safetensors huggingface-hub
 
 
 
