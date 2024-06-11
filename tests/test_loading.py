@@ -2,8 +2,8 @@ import jax
 import jax.numpy as jnp
 from tokenizers import Tokenizer
 
-from fabrique.llama.loading import RULES as LLAMA_RULES
-from fabrique.llama.model import ModelArgs, Transformer
+from fabrique.models.llama.loading import RULES as LLAMA_RULES
+from fabrique.models.llama.model import ModelArgs, Transformer
 from fabrique.loading import load_params
 
 # TODO: don't require the model to be on the disk

@@ -2,8 +2,8 @@ import jax
 import jax.numpy as jnp
 from tokenizers import Tokenizer
 
-from fabrique.llama import Llama
-from fabrique.llama.model import ModelArgs, Transformer
+from fabrique.models.llama import Llama
+from fabrique.models.llama.model import ModelArgs, Transformer
 
 MODEL_ID = "meta-llama/Meta-Llama-3-8B"
 # TODO: get rid of absolute paths
