@@ -72,7 +72,7 @@ def greedy(
 
     # initialize state
     state = GreedyState(
-        cur_len=cur_len,
+        cur_len=cur_len,  # type: ignore
         sequences=sequences,
         running_token=prompt_tokens,
         is_sent_finished=is_sent_finished,
@@ -173,9 +173,9 @@ def sample(
 
     batch_size, cur_len = prompt_tokens.shape
 
-    eos_token_id = jnp.array(eos_token_id, dtype=jnp.int32)
-    pad_token_id = jnp.array(pad_token_id, dtype=jnp.int32)
-    cur_len = jnp.array(cur_len)
+    eos_token_id = jnp.array(eos_token_id, dtype=jnp.int32)  # type: ignore
+    pad_token_id = jnp.array(pad_token_id, dtype=jnp.int32)  # type: ignore
+    cur_len = jnp.array(cur_len)  # type: ignore
 
     # per batch-item holding current token in loop.
     sequences = jnp.full((batch_size, max_length), pad_token_id, dtype=jnp.int32)
@@ -186,7 +186,7 @@ def sample(
 
     # initialize state
     state = SampleState(
-        cur_len=cur_len,
+        cur_len=cur_len,  # type: ignore
         sequences=sequences,
         running_token=prompt_tokens,
         is_sent_finished=is_sent_finished,
