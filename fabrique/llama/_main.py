@@ -19,11 +19,6 @@ def outer(a: jax.Array):
 
 
 def main():
-    a = jax.random.normal(jax.random.key(0), (3, 4))
-    outer(a)
-
-
-def main():
     import os
     import sys
 
@@ -52,6 +47,3 @@ def main():
     )
     out = llama.tokenizer.decode(sequences[0])
     print(out)
-
-
-main()

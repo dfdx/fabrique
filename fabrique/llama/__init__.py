@@ -3,6 +3,7 @@ import os
 
 import jax
 import jax.numpy as jnp
+from flax.core import FrozenDict
 from huggingface_hub import snapshot_download
 from tokenizers import Tokenizer
 
@@ -37,7 +38,7 @@ class Llama:
         model = Transformer(args)
         variables = model.init(rng, example_tokens, 0)
         load_params(RULES, model_dir, out=variables["params"])
-        return Llama(tokenizer, model, variables, hf_config)
+        return Llama(tokenizer, model, variables, hf_config)  # type: ignore
 
     @staticmethod
     def from_pretrained(repo_id: str, **model_args):
