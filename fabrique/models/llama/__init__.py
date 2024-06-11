@@ -8,8 +8,8 @@ from huggingface_hub import snapshot_download
 from tokenizers import Tokenizer
 
 from fabrique.generation import greedy
-from fabrique.llama.loading import RULES
-from fabrique.llama.model import ModelArgs, Transformer
+from fabrique.models.llama.loading import RULES
+from fabrique.models.llama.model import ModelArgs, Transformer
 from fabrique.loading import load_params
 
 
