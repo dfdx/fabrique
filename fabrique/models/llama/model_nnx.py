@@ -25,8 +25,8 @@ class ModelArgs:
     norm_eps: float = 1e-5
     max_batch_size: int = 32
     max_seq_len: int = 2048
-    dtype = jnp.float32
-    param_dtype = jnp.float32
+    dtype: jnp.dtype = jnp.float32
+    param_dtype: jnp.dtype = jnp.float32
     use_cache: bool = True
 
     @staticmethod
@@ -467,3 +467,4 @@ class Transformer(nnx.Module):
         h = self.norm(h)
         output = self.output(h).astype("float32")
         return output
+

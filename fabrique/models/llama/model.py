@@ -25,8 +25,8 @@ class ModelArgs:
     norm_eps: float = 1e-5
     max_batch_size: int = 32
     max_seq_len: int = 2048
-    dtype = jnp.bfloat16
-    param_dtype = jnp.float32
+    dtype: jnp.dtype = jnp.float32
+    param_dtype: jnp.dtype = jnp.float32
     use_cache: bool = True
 
     @staticmethod
@@ -314,7 +314,7 @@ class FeedForward(nn.Module):
     hidden_dim: int
     multiple_of: int
     ffn_dim_multiplier: Optional[float]
-    dtype: jnp.dtype = jnp.bfloat16
+    dtype: jnp.dtype = jnp.float32
     param_dtype: jnp.dtype = jnp.float32
 
     def setup(self):
