@@ -10,6 +10,7 @@ import jax.numpy as jnp
 def debug_while_loop(cond_fun, body_fun, init_val):
     val = init_val
     while cond_fun(val):
+        print(">>>>>>>>>>>>>>>>> new iteration")
         val = body_fun(val)
     return val
 
@@ -123,8 +124,8 @@ def greedy(
     # The very first prompt often has sequence length > 1, so run outside of `lax.while_loop` to comply with TPU
     if prompt_tokens.shape[1] > 1:
         state = greedy_search_body_fn(state)
-    state = lax.while_loop(greedy_search_cond_fn, greedy_search_body_fn, state)
-    # state = debug_while_loop(greedy_search_cond_fn, greedy_search_body_fn, state)
+    # state = lax.while_loop(greedy_search_cond_fn, greedy_search_body_fn, state)
+    state = debug_while_loop(greedy_search_cond_fn, greedy_search_body_fn, state)
 
     return state.sequences
 
@@ -255,20 +256,118 @@ def sample(
 ################################################################
 
 
-def main():
-    from fabrique.llama import Llama
+
+
+#  old] xk before cache: mean=0.00104523, shape=(1, 1, 8, 128), dtype=bfloat16
+# [old] xv before cache: mean=0.000343323, shape=(1, 1, 8, 128), dtype=bfloat16
+# [old] xk after cache: mean=0.00787354, shape=(1, 8, 8, 128), dtype=bfloat16
+# [old] xv after cache: mean=-0.00189972, shape=(1, 8, 8, 128), dtype=bfloat16
+# [old] h after layer 0: mean=2.06232e-05, shape=(1, 1, 4096), dtype=bfloat16
+
+# xk before cache: mean=0.00104523, shape=(1, 1, 8, 128), dtype=bfloat16
+# xv before cache: mean=0.000343323, shape=(1, 1, 8, 128), dtype=bfloat16
+# xk after cache: mean=0.000130653, shape=(1, 8, 8, 128), dtype=bfloat16
+# xv after cache: mean=4.29153e-05, shape=(1, 8, 8, 128), dtype=bfloat16
+# h after layer 0: mean=9.47714e-06, shape=(1, 1, 4096), dtype=bfloat16
+
+
+def main3():
+    # TODO: loader should take into account dtype of parameters in safetensor
+    from fabrique.models.llama import Llama, LlamaNNX
+    from fabrique.generation_nnx import greedy as greedy_nnx
+    from fabrique.utils import update_tree
+
+    model_id = "meta-llama/Meta-Llama-3-8B"
+    kwargs = {
+        "max_seq_len": 8,
+        "max_batch_size": 1,
+        "dtype": jnp.bfloat16,
+        "param_dtype": jnp.bfloat16,
+    }
+    llama = Llama.from_pretrained(model_id, **kwargs)
+    model, variables = llama.model, llama.variables
+
+    llama_nnx = LlamaNNX.from_pretrained(model_id, **kwargs)
+    model_nnx = llama_nnx.model
+
+    prompt = """Once upon a time"""
+    prompt_tokens = llama.tokenizer.encode(prompt).ids
+    prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
+
+    print("~~~~~~~~~~~~~~~~~~ [old] greedy ~~~~~~~~~~~~~~~~~~")
+    sequences = greedy(
+        model,
+        variables,
+        prompt_tokens,
+        pad_token_id=llama.hf_config["eos_token_id"],
+        eos_token_id=llama.hf_config["eos_token_id"],
+        max_length=llama.model.args.max_seq_len,
+    )
+    out = llama.tokenizer.decode(sequences[0])
+    print(out)
+
+    print("~~~~~~~~~~~~~~~~~~ nnx greedy ~~~~~~~~~~~~~~~~~~")
+    # TODO: cache is not filled this way
+    sequences = greedy_nnx(
+        model_nnx,
+        prompt_tokens,
+        pad_token_id=llama.hf_config["eos_token_id"],
+        eos_token_id=llama.hf_config["eos_token_id"],
+        max_length=llama.model.args.max_seq_len,
+    )
+    out = llama.tokenizer.decode(sequences[0])
+    print(out)
+
+
+
+def main2():
+    # TODO: loader should take into account dtype of parameters in safetensor
+    from fabrique.models.llama import Llama, LlamaNNX
+    from fabrique.utils import update_tree
 
     model_id = "meta-llama/Meta-Llama-3-8B"
     kwargs = {
         "max_seq_len": 512,
         "max_batch_size": 1,
-        "dtype": jnp.float16,
-        "param_dtype": jnp.float16,
+        "dtype": jnp.bfloat16,
+        "param_dtype": jnp.bfloat16,
     }
     llama = Llama.from_pretrained(model_id, **kwargs)
     model, variables = llama.model, llama.variables
 
+    llama_nnx = LlamaNNX.from_pretrained(model_id, **kwargs)
+    model_nnx = llama_nnx.model
+
     prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
+    prompt_tokens = llama.tokenizer.encode(prompt).ids
+    prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
+
+    r, v_upd = model.apply(variables, prompt_tokens, 0, mutable=("cache",))
+    rn = model_nnx(prompt_tokens, 0)
+
+    r - rn
+
+    update_tree(variables, v_upd)
+    r = model.apply(variables, prompt_tokens, 3, mutable=("cache",))[0]
+    rn = model_nnx(prompt_tokens, 3)
+
+    r - rn
+
+
+def main():
+    from fabrique.models.llama import Llama, LlamaNNX
+
+    model_id = "meta-llama/Meta-Llama-3-8B"
+    kwargs = {
+        "max_seq_len": 32,
+        "max_batch_size": 1,
+        "dtype": jnp.bfloat16,
+        "param_dtype": jnp.bfloat16,
+    }
+    llama = Llama.from_pretrained(model_id, **kwargs)
+    model, variables = llama.model, llama.variables
+
+    prompt = """Once upon a time"""
     prompt_tokens = llama.tokenizer.encode(prompt).ids
     prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
     sequences = greedy(
@@ -285,3 +384,5 @@ def main():
     pad_token_id = llama.hf_config["eos_token_id"]
     eos_token_id = llama.hf_config["eos_token_id"]
     max_length = llama.model.args.max_seq_len
+
+    llama_nnx = LlamaNNX.from_pretrained(model_id, **kwargs)

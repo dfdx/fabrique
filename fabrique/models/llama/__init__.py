@@ -4,13 +4,12 @@ import os
 import jax
 import jax.numpy as jnp
 from flax.core import FrozenDict
+from flax import nnx
 from huggingface_hub import snapshot_download
 from tokenizers import Tokenizer
 
 from fabrique.generation import greedy
-from fabrique.models.llama.loading import RULES
-from fabrique.models.llama.model import ModelArgs, Transformer
-from fabrique.loading import load_params
+from fabrique.loading import update_model_from_safe
 
 
 class Llama:
@@ -23,6 +22,10 @@ class Llama:
 
     @staticmethod
     def from_file(model_dir: str, **model_args):
+        from fabrique.models.llama.loading import RULES
+        from fabrique.models.llama.model import ModelArgs, Transformer
+        from fabrique.loading import load_params
+
         config_file = os.path.join(model_dir, "config.json")
         with open(config_file) as fp:
             hf_config = json.load(fp)
@@ -57,3 +60,68 @@ class Llama:
             max_length=self.model.args.max_seq_len,
         )
         return self.tokenizer.decode(sequences[0])
+
+
+
+class LlamaNNX:
+
+    def __init__(self, tokenizer, model, hf_config: dict):
+        self.tokenizer = tokenizer
+        self.model = model
+        self.hf_config = hf_config
+
+    @staticmethod
+    def from_file(model_dir: str, **model_args):
+        from fabrique.models.llama.model_nnx import ModelArgs, Transformer
+        from fabrique.models.llama.loading import RULES_NNX as RULES
+
+        config_file = os.path.join(model_dir, "config.json")
+        with open(config_file) as fp:
+            hf_config = json.load(fp)
+
+        tokenizer_file = os.path.join(model_dir, "tokenizer.json")
+        # rng = jax.random.PRNGKey(925)
+
+        tokenizer = Tokenizer.from_file(tokenizer_file)
+        example_tokens = tokenizer.encode("Llama walks into a bar").ids
+        example_tokens = jnp.asarray(example_tokens).reshape(1, -1)
+
+        args = ModelArgs.from_file(config_file, **model_args)
+        model = Transformer(args)
+        update_model_from_safe(model, RULES, model_dir)
+        # static, state = nnx.split(model)
+        # TODO: check dtype in created and loaded state
+
+        # update_state_from_safe(state.raw_mapping, RULES, model_dir)
+        # model = nnx.merge(static, state)
+        return LlamaNNX(tokenizer, model, hf_config)  # type: ignore
+
+    @staticmethod
+    def from_pretrained(repo_id: str, **model_args):
+        model_dir = snapshot_download(repo_id, repo_type="model")
+        return LlamaNNX.from_file(model_dir, **model_args)
+
+    def generate(self, prompt: str, seed: int = 0):
+        prompt_tokens = self.tokenizer.encode(prompt).ids
+        prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
+        sequences = greedy(
+            self.model,
+            self.variables,
+            prompt_tokens,
+            pad_token_id=self.hf_config["eos_token_id"],
+            eos_token_id=self.hf_config["eos_token_id"],
+            max_length=self.model.args.max_seq_len,
+        )
+        return self.tokenizer.decode(sequences[0])
+
+
+
+def main():
+    repo_id = "meta-llama/Meta-Llama-3-8B"
+    model_args = {
+        "max_seq_len": 512,
+        "max_batch_size": 1,
+        "dtype": jnp.bfloat16,
+        "param_dtype": jnp.bfloat16,
+    }
+    llama = LlamaNNX.from_pretrained(repo_id, **model_args)

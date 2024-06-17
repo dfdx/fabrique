@@ -7,7 +7,9 @@ import jax.lax as lax
 import jax.numpy as jnp
 from flax import nnx
 
-from fabrique.models.llama.model import Transformer
+from fabrique.models.llama.model_nnx import KVCache
+
+from fabrique.utils import print_var
 
 
 def debug_while_loop(cond_fun, body_fun, init_val):
@@ -47,7 +49,7 @@ def greedy(
     # per batch-item state bit indicating if sentence has finished.
     is_sent_finished = jnp.zeros((bsz,), dtype=jnp.bool_)
 
-    static, model_state = nnx.split(model)
+    static, model_state = nnx.split(model, ...)
 
     # initialize state
     state = GreedyState(
@@ -70,6 +72,7 @@ def greedy(
 
     def greedy_search_body_fn(state):
         """state update fn."""
+        model_state = state.model_state
         model = nnx.merge(static, model_state)
         logits = model(state.running_token, state.start_pos)
         next_token_logits = logits[:, -1]
@@ -88,7 +91,8 @@ def greedy(
         # next_start_pos = state.start_pos + state.running_token.shape[-1]
         next_start_pos = state.cur_len
         # next_cache = v_upd["cache"]
-        _, next_model_state = nnx.split(model)
+
+        _, next_model_state = nnx.split(model, ...)
         return GreedyState(
             cur_len=state.cur_len + 1,
             sequences=next_sequences,
@@ -112,33 +116,41 @@ def greedy(
 ################################################################
 
 
+
 def main():
-    from fabrique.models.llama import Llama
-    from fabrique.models.llama.model_nnx import Transformer, ModelArgs
+    # TODO: fix dirver/CUDA/JAX inconsistency, get rid of warnings and try model again
+    from fabrique.models.llama import LlamaNNX
+    from fabrique.models.llama.model_nnx import Transformer, ModelArgs, KVCache
     from tokenizers import Tokenizer
 
     model_id = "meta-llama/Meta-Llama-3-8B"
     kwargs = {
-        "max_seq_len": 512,
+        "max_seq_len": 256,
         "max_batch_size": 1,
-        "dtype": jnp.float16,
-        "param_dtype": jnp.float16,
+        "dtype": jnp.bfloat16,
+        "param_dtype": jnp.bfloat16,
     }
-    llama = Llama.from_pretrained(model_id, **kwargs)
+    llama = LlamaNNX.from_pretrained(model_id, **kwargs)
     # model, variables = llama.model, llama.variables
 
-    tokenizer = Tokenizer.from_pretrained(model_id)
-    model = Transformer(ModelArgs(**kwargs, vocab_size=tokenizer.get_vocab_size()))
+    # tokenizer = Tokenizer.from_pretrained(model_id)
+    # model = Transformer(ModelArgs(**kwargs, vocab_size=tokenizer.get_vocab_size()))
+    model, tokenizer = llama.model, llama.tokenizer
 
 
+    # cache is broken??
+    #     In [29]: print(out)
+    # Once upon a time, there was a " : "},
+    #   " : 30, "Thomas Anderson Thomas Anderson Thomas Anderson Thomas Anderson Thomas Anderson Thomas Anderson was last edited by thes
 
 
-    prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
+    # prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
+    prompt = """Once upon a time"""
     prompt_tokens = tokenizer.encode(prompt).ids
     prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
 
-    out = model(prompt_tokens, 0)
-    out.argmax(axis=-1).shape
+    # out = model(prompt_tokens, 0)
+    # out.argmax(axis=-1).shape
 
     sequences = greedy(
         model,
@@ -153,3 +165,5 @@ def main():
     pad_token_id = llama.hf_config["eos_token_id"]
     eos_token_id = llama.hf_config["eos_token_id"]
     max_length = llama.model.args.max_seq_len
+
+    # TODO: something resets cache at the beginning of each iteration :(

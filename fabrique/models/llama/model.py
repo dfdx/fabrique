@@ -11,6 +11,8 @@ import numpy as np
 from flax.linen.attention import combine_masks
 from jax import lax
 
+from fabrique.utils import print_var
+
 
 @dataclass
 class ModelArgs:
@@ -25,7 +27,7 @@ class ModelArgs:
     norm_eps: float = 1e-5
     max_batch_size: int = 32
     max_seq_len: int = 2048
-    dtype: jnp.dtype = jnp.float32
+    dtype: jnp.dtype = jnp.bfloat16
     param_dtype: jnp.dtype = jnp.float32
     use_cache: bool = True
 
@@ -276,11 +278,17 @@ class Attention(nn.Module):
             full_causal_mask, (0, 0, start_pos, 0), (1, 1, q_len, max_kv_len)
         )
 
+        # print_var("[old] xk before cache", xk)
+        # print_var("[old] xv before cache", xv)
+        # print_var("[old] cache_k", self.cache_k.value)
         mask = causal_mask
         if self.args.use_cache:
             # shape of kv after concatenating to the cache is
             # [bs, max_seq_len, n_heads, head_dim]
             xk, xv, mask = self._concatenate_to_cache(xk, xv, xq, mask, start_pos)
+
+        # print_var("[old] xk after cache", xk)
+        # print_var("[old] xv after cache", xv)
 
         # repeat k/v heads if n_kv_heads < n_heads
         xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
@@ -314,7 +322,7 @@ class FeedForward(nn.Module):
     hidden_dim: int
     multiple_of: int
     ffn_dim_multiplier: Optional[float]
-    dtype: jnp.dtype = jnp.float32
+    dtype: jnp.dtype = jnp.bfloat16
     param_dtype: jnp.dtype = jnp.float32
 
     def setup(self):
@@ -480,8 +488,12 @@ class Transformer(nn.Module):
         """
         _bsz, seq_len = tokens.shape
         h = self.tok_embeddings(tokens)
-        for layer in self.layers:
+        print_var("[old] h after embeddings", h)
+        for i, layer in enumerate(self.layers):
             h = layer(h, start_pos, self.sincos, self.causal_mask)
+            print_var(f"[old] h after layer {i}", h)
         h = self.norm(h)
+        print_var("[old] h after self.norm()", h)
         output = self.output(h).astype("float32")
+        print_var("output", output)
         return output
