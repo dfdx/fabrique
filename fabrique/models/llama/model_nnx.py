@@ -11,6 +11,8 @@ from flax import nnx
 from flax.linen.attention import combine_masks
 from jax import lax
 
+from fabrique.utils import print_var
+
 
 @dataclass
 class ModelArgs:
@@ -153,6 +155,10 @@ def repeat_kv(x: jax.Array, n_rep: int) -> jax.Array:
     )
 
 
+class KVCache(nnx.Variable):
+    pass
+
+
 class Attention(nnx.Module):
     """
     Multi-head attention module.
@@ -198,8 +204,8 @@ class Attention(nnx.Module):
         # but set its length to zero
         cache_len = self.args.max_seq_len if self.args.use_cache else 0
         cache_shape = (args.max_batch_size, cache_len, self.n_kv_heads, self.head_dim)
-        self.cache_k = nnx.Variable(jnp.zeros(cache_shape, args.param_dtype))
-        self.cache_v = nnx.Variable(jnp.zeros(cache_shape, args.param_dtype))
+        self.cache_k = KVCache(jnp.zeros(cache_shape, args.param_dtype))
+        self.cache_v = KVCache(jnp.zeros(cache_shape, args.param_dtype))
 
     def _concatenate_to_cache(self, xk, xv, xq, attn_mask, start_pos: int):
         """
@@ -259,11 +265,18 @@ class Attention(nnx.Module):
             full_causal_mask, (0, 0, start_pos, 0), (1, 1, q_len, max_kv_len)
         )
 
+        # print_var("xk before cache", xk)
+        # print_var("xv before cache", xv)
+        # print_var("cache_k", self.cache_k.value)
+
         mask = causal_mask
         if self.args.use_cache:
             # shape of kv after concatenating to the cache is
             # [bs, max_seq_len, n_heads, head_dim]
             xk, xv, mask = self._concatenate_to_cache(xk, xv, xq, mask, start_pos)
+
+        # print_var("xk after cache", xk)
+        # print_var("xv after cache", xv)
 
         # repeat k/v heads if n_kv_heads < n_heads
         xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
@@ -433,7 +446,10 @@ class Transformer(nnx.Module):
         self.vocab_size = args.vocab_size
         self.n_layers = args.n_layers
 
-        self.tok_embeddings = nnx.Embed(num_embeddings=args.vocab_size, features=args.dim, rngs=rngs)
+        self.tok_embeddings = nnx.Embed(
+            num_embeddings=args.vocab_size, features=args.dim,
+            dtype=args.dtype, param_dtype=args.param_dtype, rngs=rngs
+        )
 
         self.layers = [
             TransformerBlock(args, rngs=rngs)
@@ -462,9 +478,13 @@ class Transformer(nnx.Module):
             jax.Array: Output logits after applying the Transformer model.
         """
         h = self.tok_embeddings(tokens)
-        for layer in self.layers:
+        # print_var("h after embeddings", h)
+        for i, layer in enumerate(self.layers):
             h = layer(h, start_pos, self.sincos, self.causal_mask)
+            # print_var(f"h after layer {i}", h)
         h = self.norm(h)
+        # print_var(f"h after self.norm()", h)
         output = self.output(h).astype("float32")
+        # print_var(f"output", output)
         return output
 
