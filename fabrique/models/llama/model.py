@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Optional
 
-import flax.linen as nn
 import jax
 import jax.numpy as jnp
 import numpy as np
+from flax import nnx
 from flax.linen.attention import combine_masks
 from jax import lax
 
@@ -27,7 +27,7 @@ class ModelArgs:
     norm_eps: float = 1e-5
     max_batch_size: int = 32
     max_seq_len: int = 2048
-    dtype: jnp.dtype = jnp.bfloat16
+    dtype: jnp.dtype = jnp.float32
     param_dtype: jnp.dtype = jnp.float32
     use_cache: bool = True
 
@@ -56,12 +56,15 @@ class ModelArgs:
         return args
 
 
-class RMSNorm(nn.Module):
-    dim: int
-    eps: float = 1e-6
-    param_dtype: jnp.dtype = jnp.float32
+class RMSNorm(nnx.Module):
 
-    def setup(self):
+    def __init__(
+        self,
+        dim: int,
+        eps: float = 1e-6,
+        param_dtype: jnp.dtype = jnp.float32,
+
+    ):
         """
         Initialize the RMSNorm normalization layer.
 
@@ -74,9 +77,10 @@ class RMSNorm(nn.Module):
             weight (nn.Parameter): Learnable scaling parameter.
 
         """
-        self.weight = self.param(
-            "weight", lambda *args: jnp.ones(self.dim, dtype=self.param_dtype)
-        )
+        self.dim = dim
+        self.eps = eps
+        self.param_dtype = param_dtype
+        self.weight = nnx.Param(jnp.ones(self.dim, dtype=self.param_dtype))
 
     def _norm(self, x):
         """
@@ -113,8 +117,6 @@ def create_sinusoidal_positions(num_pos, dim):
     freqs = np.einsum("i , j -> i j", np.arange(num_pos), inv_freq).astype("float32")
 
     emb = np.concatenate((freqs, freqs), axis=-1)
-    # out = np.concatenate((np.sin(emb)[:, None, :], np.cos(emb)[:, None, :]), axis=-1)
-    # return jnp.array(out[:, :, :num_pos])
     return np.concatenate((np.sin(emb), np.cos(emb)), axis=-1)
 
 
@@ -151,7 +153,11 @@ def repeat_kv(x: jax.Array, n_rep: int) -> jax.Array:
     )
 
 
-class Attention(nn.Module):
+class KVCache(nnx.Variable):
+    pass
+
+
+class Attention(nnx.Module):
     """
     Multi-head attention module.
 
@@ -170,55 +176,34 @@ class Attention(nn.Module):
         cache_v (jax.Array): Cached values for attention.
     """
 
-    args: ModelArgs
-
-    def setup(self):
-        self.n_heads = self.args.n_heads
+    def __init__(self, args: ModelArgs, rngs: nnx.Rngs):
+        self.args = args
+        self.n_heads = args.n_heads
         self.n_kv_heads = (
-            self.n_heads if self.args.n_kv_heads is None else self.args.n_kv_heads
+            self.n_heads if args.n_kv_heads is None else args.n_kv_heads
         )
 
         self.n_rep = self.n_heads // self.n_kv_heads
         self.head_dim = self.args.dim // self.n_heads
 
         dense = partial(
-            nn.Dense,
+            nnx.Linear,
             use_bias=False,
             dtype=self.args.dtype,
             param_dtype=self.args.param_dtype,
-            kernel_init=jax.nn.initializers.normal(0.02),  # 0.02 - initializer range
+            kernel_init=jax.nn.initializers.normal(0.02),  # 0.02 - initializer range,
+            rngs=rngs
         )
-        self.wq = dense(self.n_heads * self.head_dim)
-        self.wk = dense(self.n_kv_heads * self.head_dim)
-        self.wv = dense(self.n_kv_heads * self.head_dim)
-        self.wo = dense(self.args.dim)
+        self.wq = dense(args.dim, self.n_heads * self.head_dim)
+        self.wk = dense(args.dim, self.n_kv_heads * self.head_dim)
+        self.wv = dense(args.dim, self.n_kv_heads * self.head_dim)
+        self.wo = dense(self.n_heads * self.head_dim, self.args.dim)
         # if use_cache == False, we still create the variable to keep the same structure
         # but set its length to zero
         cache_len = self.args.max_seq_len if self.args.use_cache else 0
-        self.cache_k = self.variable(
-            "cache",
-            "cache_k",
-            jnp.zeros,
-            (
-                self.args.max_batch_size,
-                cache_len,
-                self.n_kv_heads,
-                self.head_dim,
-            ),
-            self.args.dtype,
-        )
-        self.cache_v = self.variable(
-            "cache",
-            "cache_v",
-            jnp.zeros,
-            (
-                self.args.max_batch_size,
-                cache_len,
-                self.n_kv_heads,
-                self.head_dim,
-            ),
-            self.args.dtype,
-        )
+        cache_shape = (args.max_batch_size, cache_len, self.n_kv_heads, self.head_dim)
+        self.cache_k = KVCache(jnp.zeros(cache_shape, args.param_dtype))
+        self.cache_v = KVCache(jnp.zeros(cache_shape, args.param_dtype))
 
     def _concatenate_to_cache(self, xk, xv, xq, attn_mask, start_pos: int):
         """
@@ -278,17 +263,11 @@ class Attention(nn.Module):
             full_causal_mask, (0, 0, start_pos, 0), (1, 1, q_len, max_kv_len)
         )
 
-        # print_var("[old] xk before cache", xk)
-        # print_var("[old] xv before cache", xv)
-        # print_var("[old] cache_k", self.cache_k.value)
         mask = causal_mask
         if self.args.use_cache:
             # shape of kv after concatenating to the cache is
             # [bs, max_seq_len, n_heads, head_dim]
             xk, xv, mask = self._concatenate_to_cache(xk, xv, xq, mask, start_pos)
-
-        # print_var("[old] xk after cache", xk)
-        # print_var("[old] xv after cache", xv)
 
         # repeat k/v heads if n_kv_heads < n_heads
         xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
@@ -305,7 +284,7 @@ class Attention(nn.Module):
             # to apply it to scores, we convert it to 0s and -inf accordingly
             imask = jnp.where(mask == 0, -jnp.inf, 0)
             scores = scores + imask  # (bs, n_heads, q_len, kv_len)
-        scores = nn.softmax(scores.astype("float32"), axis=-1).astype(xq.dtype)
+        scores = nnx.softmax(scores.astype("float32"), axis=-1).astype(xq.dtype)
 
         # output = jnp.matmul(scores, xv)  # (bs, n_heads, q_len, head_dim)??
         # output = jnp.moveaxis(output, 1, 2).ravel().reshape(bsz, seq_len, -1)
@@ -317,15 +296,18 @@ class Attention(nn.Module):
         return self.wo(output)
 
 
-class FeedForward(nn.Module):
-    dim: int
-    hidden_dim: int
-    multiple_of: int
-    ffn_dim_multiplier: Optional[float]
-    dtype: jnp.dtype = jnp.bfloat16
-    param_dtype: jnp.dtype = jnp.float32
+class FeedForward(nnx.Module):
 
-    def setup(self):
+    def __init__(
+        self,
+        dim: int,
+        hidden_dim: int,
+        multiple_of: int,
+        ffn_dim_multiplier: Optional[float],
+        dtype: jnp.dtype = jnp.float32,
+        param_dtype: jnp.dtype = jnp.float32,
+        rngs: nnx.Rngs = nnx.Rngs(params=0),
+    ):
         """
         Initialize the FeedForward module.
 
@@ -341,7 +323,12 @@ class FeedForward(nn.Module):
             w3 (Linear): Linear transformation for the third layer.
 
         """
-        hidden_dim = self.hidden_dim
+        self.dim = dim
+        self.hidden_dim = hidden_dim
+        self.multiple_of = multiple_of
+        self.ffn_dim_multiplier = ffn_dim_multiplier
+        self.dtype = dtype
+        self.param_dtype = param_dtype
         # hidden_dim = int(2 * hidden_dim / 3)
         # custom dim factor multiplier
         if self.ffn_dim_multiplier is not None:
@@ -349,31 +336,22 @@ class FeedForward(nn.Module):
         hidden_dim = self.multiple_of * (
             (hidden_dim + self.multiple_of - 1) // self.multiple_of
         )
-
-        self.w1 = nn.Dense(
-            hidden_dim, use_bias=False, param_dtype=self.param_dtype, dtype=self.dtype
-        )
-        self.w2 = nn.Dense(
-            self.dim, use_bias=False, param_dtype=self.param_dtype, dtype=self.dtype
-        )
-        self.w3 = nn.Dense(
-            hidden_dim, use_bias=False, param_dtype=self.param_dtype, dtype=self.dtype
-        )
+        linear = partial(nnx.Linear, use_bias=False, param_dtype=self.param_dtype, dtype=self.dtype, rngs=rngs)
+        self.w1 = linear(dim, hidden_dim)
+        self.w2 = linear(hidden_dim, dim)
+        self.w3 = linear(dim, hidden_dim)
 
     def __call__(self, x):
-        return self.w2(nn.silu(self.w1(x)) * self.w3(x))
+        return self.w2(nnx.silu(self.w1(x)) * self.w3(x))
 
 
-class TransformerBlock(nn.Module):
-    layer_id: int
-    args: ModelArgs
+class TransformerBlock(nnx.Module):
 
-    def setup(self):
+    def __init__(self, args: ModelArgs, rngs: nnx.Rngs):
         """
         Initialize a TransformerBlock.
 
         Args:
-            layer_id (int): Identifier for the layer.
             args (ModelArgs): Model configuration parameters.
 
         Attributes:
@@ -387,11 +365,11 @@ class TransformerBlock(nn.Module):
             ffn_norm (RMSNorm): Layer normalization for feedforward output.
 
         """
-        args = self.args
+        self.args = args
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
-        self.attention = Attention(args)
+        self.attention = Attention(args, rngs=rngs)
         self.feed_forward = FeedForward(
             dim=args.dim,
             hidden_dim=args.ffn_hidden_size,
@@ -399,6 +377,7 @@ class TransformerBlock(nn.Module):
             ffn_dim_multiplier=args.ffn_dim_multiplier,
             dtype=self.args.dtype,
             param_dtype=self.args.param_dtype,
+            rngs=rngs,
         )
         self.attention_norm = RMSNorm(
             args.dim, eps=args.norm_eps, param_dtype=args.param_dtype
@@ -434,10 +413,9 @@ class TransformerBlock(nn.Module):
         return out
 
 
-class Transformer(nn.Module):
-    args: ModelArgs
+class Transformer(nnx.Module):
 
-    def setup(self):
+    def __init__(self, args: ModelArgs, rngs: nnx.Rngs = nnx.Rngs(params=0)):
         """
         Initialize a Transformer model.
 
@@ -445,7 +423,7 @@ class Transformer(nn.Module):
             params (ModelArgs): Model configuration parameters.
 
         Attributes:
-            params (ModelArgs): Model configuration parameters.
+            args (ModelArgs): Model configuration parameters.
             vocab_size (int): Vocabulary size.
             n_layers (int): Number of layers in the model.
             tok_embeddings (nn.Embed): Token embeddings.
@@ -455,24 +433,28 @@ class Transformer(nn.Module):
             sincos (jax.Array): Precomputed cosine and sine frequencies.
 
         """
-        self.vocab_size = self.args.vocab_size
-        self.n_layers = self.args.n_layers
+        self.args = args
+        self.vocab_size = args.vocab_size
+        self.n_layers = args.n_layers
 
-        self.tok_embeddings = nn.Embed(self.args.vocab_size, self.args.dim)
+        self.tok_embeddings = nnx.Embed(
+            num_embeddings=args.vocab_size, features=args.dim,
+            dtype=args.dtype, param_dtype=args.param_dtype, rngs=rngs
+        )
 
         self.layers = [
-            TransformerBlock(layer_id, self.args)
-            for layer_id in range(self.args.n_layers)
+            TransformerBlock(args, rngs=rngs)
+            for _ in range(args.n_layers)
         ]
 
-        self.norm = RMSNorm(self.args.dim, eps=self.args.norm_eps)
-        self.output = nn.Dense(self.args.vocab_size, use_bias=False)
+        self.norm = RMSNorm(args.dim, eps=args.norm_eps)
+        self.output = nnx.Linear(args.dim, args.vocab_size, use_bias=False, rngs=rngs)
 
         self.sincos = create_sinusoidal_positions(
-            self.args.max_seq_len, self.args.dim // self.args.n_heads
+            args.max_seq_len, args.dim // args.n_heads
         )
-        self.causal_mask = nn.make_causal_mask(
-            jnp.ones((1, self.args.max_seq_len), dtype="bool"), dtype="bool"
+        self.causal_mask = nnx.make_causal_mask(
+            jnp.ones((1, args.max_seq_len), dtype="bool"), dtype="bool"
         )
 
     def __call__(self, tokens: jax.Array, start_pos: int):
@@ -486,14 +468,10 @@ class Transformer(nn.Module):
         Returns:
             jax.Array: Output logits after applying the Transformer model.
         """
-        _bsz, seq_len = tokens.shape
         h = self.tok_embeddings(tokens)
-        print_var("[old] h after embeddings", h)
         for i, layer in enumerate(self.layers):
             h = layer(h, start_pos, self.sincos, self.causal_mask)
-            print_var(f"[old] h after layer {i}", h)
         h = self.norm(h)
-        print_var("[old] h after self.norm()", h)
         output = self.output(h).astype("float32")
-        print_var("output", output)
         return output
+
