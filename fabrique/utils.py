@@ -1,4 +1,11 @@
+import re
+from typing import Dict, List
+
+from flax.core import FrozenDict
 from jax import tree_util
+
+AnyDict = Dict | FrozenDict
+DictOrList = List | AnyDict
 
 
 def size_gb(variables: dict):
@@ -8,7 +15,7 @@ def size_gb(variables: dict):
     return bytes / (1024**3)
 
 
-def update_tree(a: dict, b: dict):
+def update_tree(a: Dict, b: Dict):
     """
     Update tree a with keys from tree b.
 
@@ -22,6 +29,34 @@ def update_tree(a: dict, b: dict):
             a[key] = b[key]
 
 
+# def eachindex(x: DictOrList):
+#     if isinstance(x, List):
+#         return list(range(len(x)))
+#     elif isinstance(x, AnyDict):
+#         return list(x.keys())
+
+
+# def hasindex(x: DictOrList, idx):
+#     if isinstance(x, List):
+#         return 0 <= idx < len(x)
+#     elif isinstance(x, AnyDict):
+#         return idx in x
+
+
+# def update_tree(a: DictOrList, b: DictOrList):
+#     """
+#     Update tree a with keys from tree b.
+
+#     Semantics of this operation is the same as dict.update(), but update_tree()
+#     also works recursively.
+#     """
+#     for key in eachindex(b):
+#         if hasindex(a, key) and isinstance(a[key], DictOrList) and isinstance(b[key], DictOrList):
+#             update_tree(a[key], b[key])
+#         else:
+#             a[key] = b[key]
+
+
 def print_var(name: str, x):
     """
     Print some of the array properties. Useful for print-based debuging
@@ -31,3 +66,89 @@ def print_var(name: str, x):
         print(f"{name}: mean={x.mean()}, shape={x.shape}, dtype={x.dtype}")
     else:
         print(f"{name} = {x}")
+
+
+LIST_KEY_REGEXP = r"^([a-zA-Z0-9]+)\[(\d+)\]"
+
+
+def set_nested(nested: Dict, keys: List[str], val):
+    """
+    Set value into the nested dict according to the path of keys.
+
+    Example:
+
+        set_nested({}, ["a", "b", "c"], 42)
+        # ==> {'a': {'b': {'c': 42}}}
+
+        set_nested({"a": {"d": 54}}, ["a", "b[3]", "c"], 42)
+        # ==> {'a': {'d': 54, 'b': [None, None, None, {'c': 42}]}}
+    """
+    dct = nested
+    for key in keys[:-1]:
+        index = None
+        is_list_match = None
+        if isinstance(key, str):
+            is_list_match = re.match(LIST_KEY_REGEXP, key)
+        if is_list_match:
+            # sub-object is a list
+            key, index = is_list_match.groups()
+            index = int(index)
+            if key not in dct:
+                dct[key] = []
+            lst = dct[key]
+            # if list is too short, extend it
+            lst.extend([None for _ in range(index + 1 - len(lst))])
+            if lst[index] is None:
+                lst[index] = {}
+            dct = lst[index]
+        else:
+            # sub-object is a dict
+            if key not in dct:
+                dct[key] = {}
+            dct = dct[key]
+    dct[keys[-1]] = val
+    return nested
+
+
+def set_nested_attr(nested_obj, fields: List[str], val):
+    """
+    Set attribute value according to the path of fields.
+
+    Like set_nested(), but for object attributes.
+    """
+
+    def ensure_field(obj, field):
+        if not hasattr(obj, field):
+            raise AttributeError(
+                f"[set_nested_attr] '{type(obj).__name__}' object has no attribute {field}"
+            )
+
+    obj = nested_obj
+    for field in fields[:-1]:
+        index = None
+        is_list_match = None
+        if isinstance(field, str):
+            is_list_match = re.match(LIST_KEY_REGEXP, field)
+        if is_list_match:
+            # sub-object is a list
+            field, index = is_list_match.groups()
+            index = int(index)
+            ensure_field(obj, field)
+            lst = getattr(obj, field)
+            assert index < len(
+                lst
+            ), f"Trying to set {type(obj)}.{field}[{index}], but the list only has length of {len(lst)}"
+            obj = lst[index]
+        else:
+            ensure_field(obj, field)
+            obj = getattr(obj, field)
+    last_field = fields[-1]
+    ensure_field(obj, last_field)
+    setattr(obj, last_field, val)
+    return nested_obj
+
+
+def cache_layout(model, layer_id=0):
+    x = model.layers[layer_id].attention.cache_k.value
+    flags = x.sum(axis=2)[0, :, 0] != 0
+    return flags.astype(int)

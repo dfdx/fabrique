@@ -5,6 +5,7 @@ import flax
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
+from flax import nnx
 
 
 def debug_while_loop(cond_fun, body_fun, init_val):
@@ -21,7 +22,7 @@ class GreedyState:
     running_token: jnp.ndarray
     is_sent_finished: jnp.ndarray
     start_pos: int
-    cache: jax.Array
+    model_state: nnx.State
 
 
 @flax.struct.dataclass
@@ -35,21 +36,8 @@ class SampleState:
     cache: jax.Array
 
 
-@flax.struct.dataclass
-class BeamSearchState:
-    cur_len: jnp.ndarray
-    running_sequences: jnp.ndarray
-    running_scores: jnp.ndarray
-    sequences: jnp.ndarray
-    scores: jnp.ndarray
-    is_sent_finished: jnp.ndarray
-    start_pos: int
-    cache: jax.Array
-
-
 def greedy(
     model,
-    variables: Dict,
     prompt_tokens: jax.Array,
     pad_token_id: int,
     eos_token_id: int,
@@ -68,7 +56,7 @@ def greedy(
     # per batch-item state bit indicating if sentence has finished.
     is_sent_finished = jnp.zeros((bsz,), dtype=jnp.bool_)
 
-    params = variables["params"]
+    static, model_state = nnx.split(model, ...)
 
     # initialize state
     state = GreedyState(
@@ -77,7 +65,7 @@ def greedy(
         running_token=prompt_tokens,
         is_sent_finished=is_sent_finished,
         start_pos=0,
-        cache=variables["cache"],
+        model_state=model_state,
     )
 
     def greedy_search_cond_fn(state):
@@ -91,10 +79,9 @@ def greedy(
 
     def greedy_search_body_fn(state):
         """state update fn."""
-        variables = {"params": params, "cache": state.cache}
-        logits, v_upd = model.apply(
-            variables, state.running_token, state.start_pos, mutable=("cache",)
-        )
+        model_state = state.model_state
+        model = nnx.merge(static, model_state)
+        logits = model(state.running_token, state.start_pos)
         next_token_logits = logits[:, -1]
 
         next_token = jnp.argmax(next_token_logits, axis=-1)
@@ -110,14 +97,17 @@ def greedy(
         )
         # next_start_pos = state.start_pos + state.running_token.shape[-1]
         next_start_pos = state.cur_len
-        next_cache = v_upd["cache"]
+        # next_cache = v_upd["cache"]
+
+        _, next_model_state = nnx.split(model, ...)
         return GreedyState(
             cur_len=state.cur_len + 1,
             sequences=next_sequences,
             running_token=next_token,
             is_sent_finished=next_is_sent_finished,
             start_pos=next_start_pos,
-            cache=next_cache,
+            # cache=next_cache,
+            model_state=next_model_state,
         )
 
     # The very first prompt often has sequence length > 1, so run outside of `lax.while_loop` to comply with TPU
@@ -169,6 +159,7 @@ def sample(
     max_length: int = 512,
     prng_key: jax.Array | None = None,
 ):
+    raise Exception("NNX version of sample() is not implemented yet")
     prng_key = prng_key if prng_key is not None else jax.random.PRNGKey(0)
 
     batch_size, cur_len = prompt_tokens.shape
@@ -255,25 +246,26 @@ def sample(
 ################################################################
 
 
-def main():
-    from fabrique.llama import Llama
+def example():
+    from fabrique.models.llama import Llama
 
     model_id = "meta-llama/Meta-Llama-3-8B"
     kwargs = {
-        "max_seq_len": 512,
+        "max_seq_len": 256,
         "max_batch_size": 1,
-        "dtype": jnp.float16,
-        "param_dtype": jnp.float16,
+        "dtype": jnp.bfloat16,
+        "param_dtype": jnp.bfloat16,
     }
     llama = Llama.from_pretrained(model_id, **kwargs)
-    model, variables = llama.model, llama.variables
+    model, tokenizer = llama.model, llama.tokenizer
 
-    prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
-    prompt_tokens = llama.tokenizer.encode(prompt).ids
+    # prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
+    prompt = """Once upon a time, in a kingdom far far away"""
+    prompt_tokens = tokenizer.encode(prompt).ids
     prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
+
     sequences = greedy(
         model,
-        variables,
         prompt_tokens,
         pad_token_id=llama.hf_config["eos_token_id"],
         eos_token_id=llama.hf_config["eos_token_id"],
@@ -281,7 +273,3 @@ def main():
     )
     out = llama.tokenizer.decode(sequences[0])
     print(out)
-
-    pad_token_id = llama.hf_config["eos_token_id"]
-    eos_token_id = llama.hf_config["eos_token_id"]
-    max_length = llama.model.args.max_seq_len

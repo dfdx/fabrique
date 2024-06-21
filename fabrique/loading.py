@@ -6,9 +6,10 @@ from typing import Any, Callable, Dict, List
 
 import jax
 import safetensors.flax as st
+from flax import nnx
 from tqdm import tqdm
 
-from fabrique.utils import update_tree
+from fabrique.utils import set_nested, set_nested_attr, update_tree
 
 
 @dataclass
@@ -56,37 +57,71 @@ def convert_safetensor(rules: List[ConversionRule], safe_key: str, safe_val):
     )
 
 
-def set_nested(nested: Dict, keys: List[str], val):
-    dct = nested
-    for subkey in keys[:-1]:
-        if subkey not in dct:
-            dct[subkey] = {}
-        dct = dct[subkey]
-    dct[keys[-1]] = val
-    return nested
+# def safe2jax(rules: List[ConversionRule], flat: Dict[str, jax.Array]):
+#     params: Dict[str, Any] = {}
+#     for safe_key, safe_val in flat.items():
+#         path, val = convert_safetensor(rules, safe_key, safe_val)
+#         if val is not IGNORE:
+#             fab_keys = path.split(".")
+#             # Flax NNX uses dicts with INT keys for lists (e.g. layers)
+#             fab_keys = [int(key) if key.isnumeric() else key for key in fab_keys]
+#             set_nested(params, fab_keys, val)
+#     return params
 
 
-def safe2jax(rules: List[ConversionRule], flat: Dict[str, jax.Array]):
-    params: Dict[str, Any] = {}
+# # TODO: not needed in NNX world?
+# def load_params(rules: List[ConversionRule], model_dir: str, out=None):
+#     """
+#     Load Flax variables from a Huggingface model directory
+#     """
+#     with open(os.path.join(model_dir, "model.safetensors.index.json")) as fp:
+#         index = json.load(fp)
+#     safe_files_ = set(index["weight_map"].values())
+#     safe_files = [os.path.join(model_dir, filename) for filename in safe_files_]
+#     params = out or {}
+#     for path in tqdm(safe_files):
+#         flat = st.load_file(path)
+#         new_params = safe2jax(rules, flat)
+#         print(path)
+#         update_tree(params, new_params)
+#     return params
+
+
+# def update_state_from_safe(state: Dict, rules: List[ConversionRule], model_dir: str):
+#     """
+#     Load Flax variables from a Huggingface model directory
+#     """
+#     with open(os.path.join(model_dir, "model.safetensors.index.json")) as fp:
+#         index = json.load(fp)
+#     safe_files_ = set(index["weight_map"].values())
+#     safe_files = [os.path.join(model_dir, filename) for filename in safe_files_]
+#     for path in tqdm(safe_files):
+#         flat = st.load_file(path)
+#         new_params = safe2jax(rules, flat)
+#         update_tree(state, new_params)
+
+
+def apply_rules(
+    model: nnx.Module, rules: List[ConversionRule], flat: Dict[str, jax.Array]
+):
     for safe_key, safe_val in flat.items():
         path, val = convert_safetensor(rules, safe_key, safe_val)
         if val is not IGNORE:
             fab_keys = path.split(".")
-            set_nested(params, fab_keys, val)
-    return params
+            fab_keys += ["value"]  # set to the .value field
+            set_nested_attr(model, fab_keys, val)
 
 
-def load_params(rules: List[ConversionRule], model_dir: str, out=None):
+def update_model_from_safe(
+    model: nnx.Module, rules: List[ConversionRule], model_dir: str
+):
     """
-    Load Flax variables from a Huggingface model directory
+    Update Flax NNX model from a Huggingface model directory
     """
     with open(os.path.join(model_dir, "model.safetensors.index.json")) as fp:
         index = json.load(fp)
     safe_files_ = set(index["weight_map"].values())
     safe_files = [os.path.join(model_dir, filename) for filename in safe_files_]
-    params = out or {}
     for path in tqdm(safe_files):
         flat = st.load_file(path)
-        new_params = safe2jax(rules, flat)
-        update_tree(params, new_params)
-    return params
+        apply_rules(model, rules, flat)
