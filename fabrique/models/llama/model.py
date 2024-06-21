@@ -6,12 +6,14 @@ from typing import Optional
 
 import jax
 import jax.numpy as jnp
-import numpy as np
 from flax import nnx
 from flax.linen.attention import combine_masks
 from jax import lax
 
-from fabrique.utils import print_var
+from fabrique.models.common.cache import KVCache
+from fabrique.models.common.embeddings import apply_rotary_pos_emb, create_sinusoidal_positions
+from fabrique.models.common.norm import RMSNorm
+from fabrique.models.common.utils import repeat_kv
 
 
 @dataclass
@@ -54,106 +56,6 @@ class ModelArgs:
         for k, v in kwargs.items():
             setattr(args, k, v)
         return args
-
-
-class RMSNorm(nnx.Module):
-
-    def __init__(
-        self,
-        dim: int,
-        eps: float = 1e-6,
-        param_dtype: jnp.dtype = jnp.float32,
-    ):
-        """
-        Initialize the RMSNorm normalization layer.
-
-        Args:
-            dim (int): The dimension of the input array.
-            eps (float, optional): A small value added to the denominator for numerical stability. Default is 1e-6.
-
-        Attributes:
-            eps (float): A small value added to the denominator for numerical stability.
-            weight (nn.Parameter): Learnable scaling parameter.
-
-        """
-        self.dim = dim
-        self.eps = eps
-        self.param_dtype = param_dtype
-        self.weight = nnx.Param(jnp.ones(self.dim, dtype=self.param_dtype))
-
-    def _norm(self, x):
-        """
-        Apply the RMSNorm normalization to the input array.
-
-        Args:
-            x (jax.Array): The input array.
-
-        Returns:
-            jax.Array: The normalized array.
-
-        """
-        return x * jax.lax.rsqrt(
-            jnp.power(x, 2).mean(axis=-1, keepdims=True) + self.eps
-        )
-
-    def __call__(self, x):
-        """
-        Forward pass through the RMSNorm layer.
-
-        Args:
-            x (jax.Array): The input array.
-
-        Returns:
-            jax.Array: The output array after applying RMSNorm.
-
-        """
-        output = self._norm(x.astype("float32")).astype(x.dtype)
-        return output * self.weight
-
-
-def create_sinusoidal_positions(num_pos, dim):
-    inv_freq = 1.0 / (10000 ** (np.arange(0, dim, 2) / dim))
-    freqs = np.einsum("i , j -> i j", np.arange(num_pos), inv_freq).astype("float32")
-
-    emb = np.concatenate((freqs, freqs), axis=-1)
-    return np.concatenate((np.sin(emb), np.cos(emb)), axis=-1)
-
-
-def rotate_half(tensor):
-    """Rotates half the hidden dims of the input."""
-    rotate_half_tensor = jnp.concatenate(
-        (-tensor[..., tensor.shape[-1] // 2 :], tensor[..., : tensor.shape[-1] // 2]),
-        axis=-1,
-    )
-    return rotate_half_tensor
-
-
-def apply_rotary_pos_emb(xq: jax.Array, xk: jax.Array, sincos, start_pos: int):
-    dtype = xq.dtype
-    assert len(xq.shape) >= 4  # (*bs, seqlen, n_heads, head_dim)
-    seqlen = xq.shape[-3]
-
-    sincos_slice = lax.dynamic_slice(sincos, (start_pos, 0), (seqlen, sincos.shape[-1]))
-    sincos_slice = sincos_slice[jnp.newaxis, :, jnp.newaxis, :]
-    sin_pos, cos_pos = jnp.split(sincos_slice, 2, axis=-1)
-    xq = (xq * cos_pos) + (rotate_half(xq) * sin_pos)
-    xk = (xk * cos_pos) + (rotate_half(xk) * sin_pos)
-    xq = jnp.asarray(xq, dtype=dtype)
-    xk = jnp.asarray(xk, dtype=dtype)
-    return xq, xk
-
-
-def repeat_kv(x: jax.Array, n_rep: int) -> jax.Array:
-    bs, slen, n_kv_heads, head_dim = x.shape
-    if n_rep == 1:
-        return x
-    return jnp.tile(x[:, :, :, jnp.newaxis, :], (1, 1, 1, n_rep, 1)).reshape(
-        bs, slen, n_kv_heads * n_rep, head_dim
-    )
-
-
-class KVCache(nnx.Variable):
-    pass
 
 
 class Attention(nnx.Module):
