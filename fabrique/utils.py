@@ -88,7 +88,7 @@ def set_nested(nested: Dict, keys: List[str], val):
         index = None
         is_list_match = None
         if isinstance(key, str):
-            re.match(LIST_KEY_REGEXP, key)
+            is_list_match = re.match(LIST_KEY_REGEXP, key)
         if is_list_match:
             # sub-object is a list
             key, index = is_list_match.groups()
@@ -116,6 +116,9 @@ def set_nested_attr(nested_obj, fields: List[str], val):
 
     Like set_nested(), but for object attributes.
     """
+    def ensure_field(obj, field):
+        if not hasattr(obj, field):
+            raise AttributeError(f"[set_nested_attr] '{type(obj).__name__}' object has no attribute {field}")
     obj = nested_obj
     for field in fields[:-1]:
         index = None
@@ -126,23 +129,16 @@ def set_nested_attr(nested_obj, fields: List[str], val):
             # sub-object is a list
             field, index = is_list_match.groups()
             index = int(index)
-            assert hasattr(obj, field), f"Object of type {type(obj)} doesn't have attribute {field}"
-            # if field not in obj:
-            #     # dct[key] = []
-            #     setattr(obj, field, [])
+            ensure_field(obj, field)
             lst = getattr(obj, field)
             assert index < len(lst), f"Trying to set {type(obj)}.{field}[{index}], but the list only has length of {len(lst)}"
-            # if list is too short, extend it
-            # lst.extend([None for _ in range(index + 1 - len(lst))])
-            # if lst[index] is None:
-            #     lst[index] = {}
             obj = lst[index]
         else:
-            # sub-object is a dict
-            # if field not in obj:
-            #     obj[field] = {}
+            ensure_field(obj, field)
             obj = getattr(obj, field)
-    setattr(obj, fields[-1], val)
+    last_field = fields[-1]
+    ensure_field(obj, last_field)
+    setattr(obj, last_field, val)
     return nested_obj
 
 
@@ -150,85 +146,3 @@ def cache_layout(model, layer_id=0):
     x = model.layers[layer_id].attention.cache_k.value
     flags = x.sum(axis=2)[0, :, 0] != 0
     return flags.astype(int)
-
-
-# def int_dicts_to_lists(nested: Dict):
-#     """
-#     Given a nested dict, convert subdicts with only integer keys
-#     into corresponding lists.
-#     """
-#     def dict_to_list(dct: Dict):
-#         idxs = [int(key) for key in dct.keys()]
-#         lst = [{} for _ in range(max(idxs) + 1)]
-#         for key, idx in zip(dct.keys(), idxs):
-#             lst[idx] = dct[key]
-#         return lst
-#     for key in nested:
-#         dct = nested[key]
-#         if not isinstance(dct, Dict):
-#             continue
-#         if all(subkey.isnumeric() for subkey in dct.keys()):
-#             lst = dict_to_list(dct)
-#             nested[key] = lst
-#             # apply recursively to each item in the new list
-#             for item in lst:
-#                 if isinstance(item, Dict):
-#                     int_dicts_to_lists(item)
-#         else:
-#             # apply recursively to each value of the dct
-#             for val in dct.values():
-#                 if isinstance(val, Dict):
-#                     int_dicts_to_lists(val)
-
-
-# def int_dicts_to_lists(x):
-#     """
-#     Given a nested structure x, identify all dicts that have only numeric
-#     keys and convert them to the corresponding lists.
-
-#     Example:
-
-#     ```
-#     nested = {
-#         "params": {
-#             "layers": {
-#                 "0": {"weights": 0},
-#                 "1": {"weights": 10},
-#                 "2": {"weights": 20},
-#             }
-#         },
-#         "cache": 42,
-#     }
-#     int_dicts_to_lists(nested)
-#     ```
-#     produces:
-#     ```
-#     expected = {
-#         "params": {
-#             "layers": [
-#                 {"weights": 0},
-#                 {"weights": 10},
-#                 {"weights": 20},
-#             ]
-#         },
-#         "cache": 42,
-#     }
-#     ```
-#     """
-#     if isinstance(x, AnyDict):
-#         if all(key.isnumeric() for key in x.keys()):
-#             # convert dict to list
-#             keys = list(x.keys())
-#             idxs = [int(key) for key in keys]
-#             lst = [{} for _ in range(max(idxs) + 1)]
-#             for key, idx in zip(keys, idxs):
-#                 # note: apply function recursively
-#                 lst[idx] = int_dicts_to_lists(x[key])
-#             return lst
-#         else:
-#             dct = {key: int_dicts_to_lists(val) for key, val in x.items()}
-#             return type(x)(dct)  # convert to the original dict type
-#     elif isinstance(x, List):
-#         return [int_dicts_to_lists(item) for item in x]
-#     else:
-#         return x
