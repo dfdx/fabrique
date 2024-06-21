@@ -101,16 +101,20 @@ def convert_safetensor(rules: List[ConversionRule], safe_key: str, safe_val):
 #         update_tree(state, new_params)
 
 
-def apply_rules(model: nnx.Module, rules: List[ConversionRule], flat: Dict[str, jax.Array]):
+def apply_rules(
+    model: nnx.Module, rules: List[ConversionRule], flat: Dict[str, jax.Array]
+):
     for safe_key, safe_val in flat.items():
         path, val = convert_safetensor(rules, safe_key, safe_val)
         if val is not IGNORE:
             fab_keys = path.split(".")
-            fab_keys += ["value"]   # set to the .value field
+            fab_keys += ["value"]  # set to the .value field
             set_nested_attr(model, fab_keys, val)
 
 
-def update_model_from_safe(model: nnx.Module, rules: List[ConversionRule], model_dir: str):
+def update_model_from_safe(
+    model: nnx.Module, rules: List[ConversionRule], model_dir: str
+):
     """
     Update Flax NNX model from a Huggingface model directory
     """
@@ -121,5 +125,3 @@ def update_model_from_safe(model: nnx.Module, rules: List[ConversionRule], model
     for path in tqdm(safe_files):
         flat = st.load_file(path)
         apply_rules(model, rules, flat)
-
-

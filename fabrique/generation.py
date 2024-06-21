@@ -65,7 +65,7 @@ def greedy(
         running_token=prompt_tokens,
         is_sent_finished=is_sent_finished,
         start_pos=0,
-        model_state=model_state
+        model_state=model_state,
     )
 
     def greedy_search_cond_fn(state):
@@ -117,7 +117,6 @@ def greedy(
     # state = debug_while_loop(greedy_search_cond_fn, greedy_search_body_fn, state)
 
     return state.sequences
-
 
 
 def sample_top_p(rng, probs, p):
@@ -259,7 +258,6 @@ def example():
     }
     llama = Llama.from_pretrained(model_id, **kwargs)
     model, tokenizer = llama.model, llama.tokenizer
-
 
     # prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
     prompt = """Once upon a time, in a kingdom far far away"""

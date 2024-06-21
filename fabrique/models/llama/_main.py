@@ -4,14 +4,14 @@ from flax import nnx
 
 
 class Linear(nnx.Module):
-  def __init__(self, din: int, dout: int, *, rngs: nnx.Rngs):
-    key = rngs.params()
-    self.w = nnx.Param(jax.random.uniform(key, (din, dout)))
-    self.b = nnx.Param(jnp.zeros((dout,)))
-    self.din, self.dout = din, dout
+    def __init__(self, din: int, dout: int, *, rngs: nnx.Rngs):
+        key = rngs.params()
+        self.w = nnx.Param(jax.random.uniform(key, (din, dout)))
+        self.b = nnx.Param(jnp.zeros((dout,)))
+        self.din, self.dout = din, dout
 
-  def __call__(self, x: jax.Array):
-    return x @ self.w + self.b
+    def __call__(self, x: jax.Array):
+        return x @ self.w + self.b
 
 
 def main():

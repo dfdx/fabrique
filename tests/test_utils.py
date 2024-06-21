@@ -1,6 +1,8 @@
-import pytest
 from dataclasses import dataclass
-from fabrique.utils import update_tree, set_nested, set_nested_attr
+
+import pytest
+
+from fabrique.utils import set_nested, set_nested_attr, update_tree
 
 
 def test_update_tree():
@@ -12,26 +14,31 @@ def test_update_tree():
 
 def test_set_nested():
     nested = {}
-    assert set_nested(nested, ["a", "b", "c"], 42) == {'a': {'b': {'c': 42}}}
+    assert set_nested(nested, ["a", "b", "c"], 42) == {"a": {"b": {"c": 42}}}
 
     nested = {"a": {"d": 54}}
-    assert set_nested(nested, ["a", "b", "c"], 42) == {'a': {'d': 54, 'b': {'c': 42}}}
+    assert set_nested(nested, ["a", "b", "c"], 42) == {"a": {"d": 54, "b": {"c": 42}}}
 
     nested = {"a": {"d": 54}}
-    assert set_nested(nested, ["a", "b[3]", "c"], 42) == {'a': {'d': 54, 'b': [None, None, None, {'c': 42}]}}
+    assert set_nested(nested, ["a", "b[3]", "c"], 42) == {
+        "a": {"d": 54, "b": [None, None, None, {"c": 42}]}
+    }
 
     nested = {"a": {"d": 54}}
-    assert set_nested(nested, ["a", "b[12]", "c"], 42) == {'a': {'d': 54, 'b': [None] * 12 + [{'c': 42}]}}
-
+    assert set_nested(nested, ["a", "b[12]", "c"], 42) == {
+        "a": {"d": 54, "b": [None] * 12 + [{"c": 42}]}
+    }
 
 
 def test_set_nested_attr():
     @dataclass
     class Baz:
         c: int
+
     @dataclass
     class Bar:
         b: Baz | list[Baz]
+
     @dataclass
     class Foo:
         a: Bar
@@ -40,7 +47,9 @@ def test_set_nested_attr():
     assert set_nested_attr(obj, ["a", "b", "c"], 42) == Foo(Bar(Baz(42)))
 
     obj = Foo(Bar([Baz(0), Baz(1), Baz(2)]))
-    assert set_nested_attr(obj, ["a", "b[1]", "c"], 42) == Foo(Bar([Baz(0), Baz(42), Baz(2)]))
+    assert set_nested_attr(obj, ["a", "b[1]", "c"], 42) == Foo(
+        Bar([Baz(0), Baz(42), Baz(2)])
+    )
 
     obj = Foo(Bar(Baz(0)))
     with pytest.raises(AttributeError) as e_info:

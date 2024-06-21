@@ -63,7 +63,6 @@ class RMSNorm(nnx.Module):
         dim: int,
         eps: float = 1e-6,
         param_dtype: jnp.dtype = jnp.float32,
-
     ):
         """
         Initialize the RMSNorm normalization layer.
@@ -179,9 +178,7 @@ class Attention(nnx.Module):
     def __init__(self, args: ModelArgs, rngs: nnx.Rngs):
         self.args = args
         self.n_heads = args.n_heads
-        self.n_kv_heads = (
-            self.n_heads if args.n_kv_heads is None else args.n_kv_heads
-        )
+        self.n_kv_heads = self.n_heads if args.n_kv_heads is None else args.n_kv_heads
 
         self.n_rep = self.n_heads // self.n_kv_heads
         self.head_dim = self.args.dim // self.n_heads
@@ -192,7 +189,7 @@ class Attention(nnx.Module):
             dtype=self.args.dtype,
             param_dtype=self.args.param_dtype,
             kernel_init=jax.nn.initializers.normal(0.02),  # 0.02 - initializer range,
-            rngs=rngs
+            rngs=rngs,
         )
         self.wq = dense(args.dim, self.n_heads * self.head_dim)
         self.wk = dense(args.dim, self.n_kv_heads * self.head_dim)
@@ -336,7 +333,13 @@ class FeedForward(nnx.Module):
         hidden_dim = self.multiple_of * (
             (hidden_dim + self.multiple_of - 1) // self.multiple_of
         )
-        linear = partial(nnx.Linear, use_bias=False, param_dtype=self.param_dtype, dtype=self.dtype, rngs=rngs)
+        linear = partial(
+            nnx.Linear,
+            use_bias=False,
+            param_dtype=self.param_dtype,
+            dtype=self.dtype,
+            rngs=rngs,
+        )
         self.w1 = linear(dim, hidden_dim)
         self.w2 = linear(hidden_dim, dim)
         self.w3 = linear(dim, hidden_dim)
@@ -438,14 +441,14 @@ class Transformer(nnx.Module):
         self.n_layers = args.n_layers
 
         self.tok_embeddings = nnx.Embed(
-            num_embeddings=args.vocab_size, features=args.dim,
-            dtype=args.dtype, param_dtype=args.param_dtype, rngs=rngs
+            num_embeddings=args.vocab_size,
+            features=args.dim,
+            dtype=args.dtype,
+            param_dtype=args.param_dtype,
+            rngs=rngs,
         )
 
-        self.layers = [
-            TransformerBlock(args, rngs=rngs)
-            for _ in range(args.n_layers)
-        ]
+        self.layers = [TransformerBlock(args, rngs=rngs) for _ in range(args.n_layers)]
 
         self.norm = RMSNorm(args.dim, eps=args.norm_eps)
         self.output = nnx.Linear(args.dim, args.vocab_size, use_bias=False, rngs=rngs)
@@ -474,4 +477,3 @@ class Transformer(nnx.Module):
         h = self.norm(h)
         output = self.output(h).astype("float32")
         return output
-
