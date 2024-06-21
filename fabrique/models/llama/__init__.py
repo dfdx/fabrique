@@ -7,9 +7,8 @@ from tokenizers import Tokenizer
 
 from fabrique.generation import greedy
 from fabrique.loading import update_model_from_safe
-
-from fabrique.models.llama.model import ModelArgs, Transformer
 from fabrique.models.llama.loading import RULES
+from fabrique.models.llama.model import ModelArgs, Transformer
 
 
 class Llama:

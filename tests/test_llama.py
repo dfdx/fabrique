@@ -10,8 +10,8 @@ def test_generate():
     result = llama.generate(prompt)
     assert isinstance(result, str)
     expected = (
-        "Once upon a time, there was a little girl " +
-        "who loved to read. She loved to read so much " +
-        "that she would read anything she could get her hands"
+        "Once upon a time, there was a little girl "
+        + "who loved to read. She loved to read so much "
+        + "that she would read anything she could get her hands"
     )
     assert result == expected

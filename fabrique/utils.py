@@ -1,8 +1,8 @@
 import re
 from typing import Dict, List
-from jax import tree_util
-from flax.core import FrozenDict
 
+from flax.core import FrozenDict
+from jax import tree_util
 
 AnyDict = Dict | FrozenDict
 DictOrList = List | AnyDict
@@ -29,32 +29,32 @@ def update_tree(a: Dict, b: Dict):
             a[key] = b[key]
 
 
-def eachindex(x: DictOrList):
-    if isinstance(x, List):
-        return list(range(len(x)))
-    elif isinstance(x, AnyDict):
-        return list(x.keys())
+# def eachindex(x: DictOrList):
+#     if isinstance(x, List):
+#         return list(range(len(x)))
+#     elif isinstance(x, AnyDict):
+#         return list(x.keys())
 
 
-def hasindex(x: DictOrList, idx):
-    if isinstance(x, List):
-        return 0 <= idx < len(x)
-    elif isinstance(x, AnyDict):
-        return idx in x
+# def hasindex(x: DictOrList, idx):
+#     if isinstance(x, List):
+#         return 0 <= idx < len(x)
+#     elif isinstance(x, AnyDict):
+#         return idx in x
 
 
-def update_tree(a: DictOrList, b: DictOrList):
-    """
-    Update tree a with keys from tree b.
+# def update_tree(a: DictOrList, b: DictOrList):
+#     """
+#     Update tree a with keys from tree b.
 
-    Semantics of this operation is the same as dict.update(), but update_tree()
-    also works recursively.
-    """
-    for key in eachindex(b):
-        if hasindex(a, key) and isinstance(a[key], DictOrList) and isinstance(b[key], DictOrList):
-            update_tree(a[key], b[key])
-        else:
-            a[key] = b[key]
+#     Semantics of this operation is the same as dict.update(), but update_tree()
+#     also works recursively.
+#     """
+#     for key in eachindex(b):
+#         if hasindex(a, key) and isinstance(a[key], DictOrList) and isinstance(b[key], DictOrList):
+#             update_tree(a[key], b[key])
+#         else:
+#             a[key] = b[key]
 
 
 def print_var(name: str, x):
@@ -116,9 +116,13 @@ def set_nested_attr(nested_obj, fields: List[str], val):
 
     Like set_nested(), but for object attributes.
     """
+
     def ensure_field(obj, field):
         if not hasattr(obj, field):
-            raise AttributeError(f"[set_nested_attr] '{type(obj).__name__}' object has no attribute {field}")
+            raise AttributeError(
+                f"[set_nested_attr] '{type(obj).__name__}' object has no attribute {field}"
+            )
+
     obj = nested_obj
     for field in fields[:-1]:
         index = None
@@ -131,7 +135,9 @@ def set_nested_attr(nested_obj, fields: List[str], val):
             index = int(index)
             ensure_field(obj, field)
             lst = getattr(obj, field)
-            assert index < len(lst), f"Trying to set {type(obj)}.{field}[{index}], but the list only has length of {len(lst)}"
+            assert index < len(
+                lst
+            ), f"Trying to set {type(obj)}.{field}[{index}], but the list only has length of {len(lst)}"
             obj = lst[index]
         else:
             ensure_field(obj, field)
