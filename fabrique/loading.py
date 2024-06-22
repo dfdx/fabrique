@@ -9,7 +9,10 @@ import safetensors.flax as st
 from flax import nnx
 from tqdm import tqdm
 
-from fabrique.utils import set_nested, set_nested_attr, update_tree
+from huggingface_hub import snapshot_download
+
+from fabrique.utils import set_nested_attr
+
 
 
 @dataclass
@@ -125,3 +128,62 @@ def update_model_from_safe(
     for path in tqdm(safe_files):
         flat = st.load_file(path)
         apply_rules(model, rules, flat)
+
+
+def load_from_file(
+    TokC,
+    ModArgC,
+    ModC,
+    rules,
+    model_dir: str,
+    **model_args
+):
+    """
+    Load a model from a Huggingface model directory.
+
+    Args:
+        TokC (type): Tokenizer class.
+        ModArgsC (type): Model args class.
+        ModC (type): Model class.
+        rules (List[ConversionRule]): Rules to load params.
+        model_dir (str): Path to the Huggingface model directory.
+        **model_args: Keyword arguments to overwrite defaults in ModArgsC().
+
+    Returns:
+        Tuple of (tokenizer, model, hf_config).
+    """
+    config_file = os.path.join(model_dir, "config.json")
+    with open(config_file) as fp:
+        hf_config = json.load(fp)
+    tokenizer_file = os.path.join(model_dir, "tokenizer.json")
+    tokenizer = TokC.from_file(tokenizer_file)
+    args = ModArgC.from_file(config_file, **model_args)
+    model = ModC(args)
+    update_model_from_safe(model, rules, model_dir)
+    return tokenizer, model, hf_config
+
+
+def load_from_pretrained(
+    TokC,
+    ModArgC,
+    ModC,
+    rules,
+    repo_id: str,
+    **model_args
+):
+    """
+    Load a model from a Huggingface Hub.
+
+    Args:
+        TokC (type): Tokenizer class.
+        ModArgsC (type): Model args class.
+        ModC (type): Model class.
+        rules (List[ConversionRule]): Rules to load params.
+        repo_id (str): Repo/model ID on Hugginface Hub.
+        **model_args: Keyword arguments to overwrite defaults in ModArgsC().
+
+    Returns:
+        Tuple of (tokenizer, model, hf_config).
+    """
+    model_dir = snapshot_download(repo_id, repo_type="model")
+    return load_from_file(TokC, ModArgC, ModC, rules, model_dir, **model_args)

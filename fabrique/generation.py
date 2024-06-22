@@ -257,7 +257,7 @@ def example():
         "param_dtype": jnp.bfloat16,
     }
     llama = Llama.from_pretrained(model_id, **kwargs)
-    model, tokenizer = llama.model, llama.tokenizer
+    model, tokenizer, hf_config = llama.model, llama.tokenizer, llama.hf_config
 
     # prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
     prompt = """Once upon a time, in a kingdom far far away"""
@@ -267,9 +267,9 @@ def example():
     sequences = greedy(
         model,
         prompt_tokens,
-        pad_token_id=llama.hf_config["eos_token_id"],
-        eos_token_id=llama.hf_config["eos_token_id"],
-        max_length=llama.model.args.max_seq_len,
+        pad_token_id=hf_config["eos_token_id"],
+        eos_token_id=hf_config["eos_token_id"],
+        max_length=model.args.max_seq_len,
     )
-    out = llama.tokenizer.decode(sequences[0])
+    out = tokenizer.decode(sequences[0])
     print(out)

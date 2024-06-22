@@ -91,9 +91,8 @@ class Attention(nnx.Module):
             kernel_init=jax.nn.initializers.normal(0.02),  # 0.02 - initializer range,
             rngs=rngs,
         )
-        self.wq = dense(args.dim, self.n_heads * self.head_dim)
-        self.wk = dense(args.dim, self.n_kv_heads * self.head_dim)
-        self.wv = dense(args.dim, self.n_kv_heads * self.head_dim)
+        op_size = self.n_heads * self.head_dim + 2 * (self.n_kv_heads * self.head_dim)
+        self.wqkv = dense(args.dim, op_size)
         self.wo = dense(self.n_heads * self.head_dim, self.args.dim)
         # if use_cache == False, we still create the variable to keep the same structure
         # but set its length to zero
@@ -126,7 +125,11 @@ class Attention(nnx.Module):
         q_len = seq_len
         max_kv_len = self.args.max_seq_len if self.args.use_cache else q_len
 
-        xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+        qkv = self.wqkv(x)
+        query_pos = self.n_heads * self.head_dim
+        xq = qkv[..., :query_pos]
+        xk = qkv[..., query_pos : query_pos + self.n_kv_heads * self.head_dim]
+        xv = qkv[..., query_pos + self.n_kv_heads * self.head_dim :]
 
         xq = xq.reshape(bsz, seq_len, self.n_heads, self.head_dim)
         xk = xk.reshape(bsz, seq_len, self.n_kv_heads, self.head_dim)
@@ -218,12 +221,13 @@ class FeedForward(nnx.Module):
             dtype=self.dtype,
             rngs=rngs,
         )
-        self.w1 = linear(dim, hidden_dim)
-        self.w2 = linear(hidden_dim, dim)
-        self.w3 = linear(dim, hidden_dim)
+        self.w1 = linear(dim, 2 * hidden_dim)  # gate + up projection
+        self.w2 = linear(hidden_dim, dim)      # down projection
 
     def __call__(self, x):
-        return self.w2(nnx.silu(self.w1(x)) * self.w3(x))
+        gate_up = self.w1(x)
+        gate, up = jnp.split(gate_up, 2, axis=-1)
+        return self.w2(up * nnx.silu(gate))
 
 
 class TransformerBlock(nnx.Module):
@@ -354,3 +358,20 @@ class Transformer(nnx.Module):
         h = self.norm(h)
         output = self.output(h).astype("float32")
         return output
+
+
+###########################################################
+
+def main():
+    from tokenizers import Tokenizer
+    from fabrique.loading import load_from_pretrained
+    from fabrique.models.phi.load_rules import RULES
+    model_id = "microsoft/Phi-3-mini-128k-instruct"
+    model_args = {"max_seq_len": 512, "max_batch_size": 1}
+
+    tokenizer, model, hf_config = load_from_pretrained(Tokenizer, ModelArgs, Transformer, RULES, model_id, **model_args)
+    tokens = tokenizer.encode("Once upon a time").ids
+    tokens = jnp.array(tokens).reshape(1, -1)
+    out = model(tokens, 0).argmax(axis=-1).reshape(-1)
+    tokenizer.decode(out)
+
