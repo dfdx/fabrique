@@ -247,20 +247,18 @@ def sample(
 
 
 def example():
-    from fabrique.models.llama import Llama
+    from fabrique.models.llm import LLM
 
-    model_id = "meta-llama/Meta-Llama-3-8B"
+    model_id = "microsoft/Phi-3-mini-128k-instruct"
     kwargs = {
-        "max_seq_len": 256,
+        "max_seq_len": 512,
         "max_batch_size": 1,
-        "dtype": jnp.bfloat16,
-        "param_dtype": jnp.bfloat16,
     }
-    llama = Llama.from_pretrained(model_id, **kwargs)
-    model, tokenizer, hf_config = llama.model, llama.tokenizer, llama.hf_config
+    llm = LLM.from_pretrained(model_id, **kwargs)
+    model, tokenizer, hf_config = llm.model, llm.tokenizer, llm.hf_config
 
     # prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
-    prompt = """Once upon a time, in a kingdom far far away"""
+    prompt = """<|user|>How to print a value in Python?<|end|><assistant>"""
     prompt_tokens = tokenizer.encode(prompt).ids
     prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
 
