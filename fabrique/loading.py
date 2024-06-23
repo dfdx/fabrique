@@ -1,21 +1,19 @@
 import json
 import os
-import re
 import pkgutil
+import re
 from dataclasses import dataclass
 from typing import Callable, Dict, List
 
 import jax
 import safetensors.flax as st
 from flax import nnx
-from tqdm import tqdm
-
 from huggingface_hub import snapshot_download
 from tokenizers import Tokenizer
+from tqdm import tqdm
 
-from fabrique.utils import set_nested_attr
 from fabrique import models
-
+from fabrique.utils import set_nested_attr
 
 ###############################################################################
 #                                  RULES                                      #
@@ -82,6 +80,7 @@ def apply_rules(
 #                              MODEL UPDATE                                   #
 ###############################################################################
 
+
 def update_model_from_safe(
     model: nnx.Module, rules: List[ConversionRule], model_dir: str
 ):
@@ -95,62 +94,6 @@ def update_model_from_safe(
     for path in tqdm(safe_files):
         flat = st.load_file(path)
         apply_rules(model, rules, flat)
-
-
-# def load_from_file(
-#     ModArgC,
-#     ModC,
-#     rules,
-#     model_dir: str,
-#     **model_args
-# ):
-#     """
-#     Load a model from a Huggingface model directory.
-
-#     Args:
-#         TokC (type): Tokenizer class.
-#         ModArgsC (type): Model args class.
-#         ModC (type): Model class.
-#         rules (List[ConversionRule]): Rules to load params.
-#         model_dir (str): Path to the Huggingface model directory.
-#         **model_args: Keyword arguments to overwrite defaults in ModArgsC().
-
-#     Returns:
-#         Tuple of (tokenizer, model, hf_config).
-#     """
-#     config_file = os.path.join(model_dir, "config.json")
-#     with open(config_file) as fp:
-#         hf_config = json.load(fp)
-#     tokenizer_file = os.path.join(model_dir, "tokenizer.json")
-#     tokenizer = Tokenizer.from_file(tokenizer_file)
-#     args = ModArgC.from_file(config_file, **model_args)
-#     model = ModC(args)
-#     update_model_from_safe(model, rules, model_dir)
-#     return tokenizer, model, hf_config
-
-
-# def load_from_pretrained(
-#     ModArgC,
-#     ModC,
-#     rules,
-#     repo_id: str,
-#     **model_args
-# ):
-#     """
-#     Load a model from a Huggingface Hub.
-
-#     Args:
-#         ModArgsC (type): Model args class.
-#         ModC (type): Model class.
-#         rules (List[ConversionRule]): Rules to load params.
-#         repo_id (str): Repo/model ID on Hugginface Hub.
-#         **model_args: Keyword arguments to overwrite defaults in ModArgsC().
-
-#     Returns:
-#         Tuple of (tokenizer, model, hf_config).
-#     """
-#     model_dir = snapshot_download(repo_id, repo_type="model")
-#     return load_from_file(ModArgC, ModC, rules, model_dir, **model_args)
 
 
 ###############################################################################
@@ -171,7 +114,9 @@ import importlib
 
 def find_load_configs():
     load_configs = {}
-    for module_info in pkgutil.iter_modules(models.__path__, prefix=models.__name__ + '.'):
+    for module_info in pkgutil.iter_modules(
+        models.__path__, prefix=models.__name__ + "."
+    ):
         module = importlib.import_module(module_info.name)
         if hasattr(module, "LOAD_CONFIG"):
             cfg = getattr(module, "LOAD_CONFIG")
@@ -188,10 +133,7 @@ def get_load_config(model_type: str):
     return ret
 
 
-def from_pretrained(
-    repo_id: str,
-    **model_args
-):
+def from_pretrained(repo_id: str, **model_args):
     """
     Load a model from a Huggingface Hub.
 

@@ -1,15 +1,23 @@
 import jax
 import jax.numpy as jnp
-from jax import lax
 from flax import nnx
 from flax.linen.attention import combine_masks
+from jax import lax
 
 
 class KVCache(nnx.Variable):
     pass
 
 
-def concatenate_to_cache(cache_k: KVCache, cache_v: KVCache, xk: jax.Array, xv: jax.Array, xq: jax.Array, attn_mask: jax.Array, start_pos: int):
+def concatenate_to_cache(
+    cache_k: KVCache,
+    cache_v: KVCache,
+    xk: jax.Array,
+    xv: jax.Array,
+    xq: jax.Array,
+    attn_mask: jax.Array,
+    start_pos: int,
+):
     """
     Take projected key & value states from a single input token and concatenates the states to cached
     states from previous steps.
@@ -28,5 +36,5 @@ def concatenate_to_cache(cache_k: KVCache, cache_v: KVCache, xk: jax.Array, xv: 
         jnp.arange(max_length) < start_pos + num_updated_cache_vectors,
         tuple(batch_dims) + (1, num_updated_cache_vectors, max_length),
     )
-    attn_mask = combine_masks(pad_mask, attn_mask)
+    attn_mask = combine_masks(pad_mask, attn_mask)  # type: ignore
     return keys, values, attn_mask

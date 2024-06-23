@@ -1,7 +1,7 @@
-import numpy as np
 import jax
-import jax.numpy as jnp
 import jax.lax as lax
+import jax.numpy as jnp
+import numpy as np
 
 
 def create_sinusoidal_positions(num_pos, dim):

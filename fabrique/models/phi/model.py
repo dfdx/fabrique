@@ -9,7 +9,10 @@ import jax.numpy as jnp
 from flax import nnx
 
 from fabrique.models.common.cache import KVCache, concatenate_to_cache
-from fabrique.models.common.embeddings import apply_rotary_pos_emb, create_sinusoidal_positions
+from fabrique.models.common.embeddings import (
+    apply_rotary_pos_emb,
+    create_sinusoidal_positions,
+)
 from fabrique.models.common.norm import RMSNorm
 from fabrique.models.common.utils import repeat_kv
 
@@ -145,7 +148,9 @@ class Attention(nnx.Module):
         if self.args.use_cache:
             # shape of kv after concatenating to the cache is
             # [bs, max_seq_len, n_heads, head_dim]
-            xk, xv, mask = concatenate_to_cache(self.cache_k, self.cache_v, xk, xv, xq, mask, start_pos)
+            xk, xv, mask = concatenate_to_cache(
+                self.cache_k, self.cache_v, xk, xv, xq, mask, start_pos
+            )
 
         # repeat k/v heads if n_kv_heads < n_heads
         xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
@@ -222,7 +227,7 @@ class FeedForward(nnx.Module):
             rngs=rngs,
         )
         self.w1 = linear(dim, 2 * hidden_dim)  # gate + up projection
-        self.w2 = linear(hidden_dim, dim)      # down projection
+        self.w2 = linear(hidden_dim, dim)  # down projection
 
     def __call__(self, x):
         gate_up = self.w1(x)
@@ -362,16 +367,20 @@ class Transformer(nnx.Module):
 
 ###########################################################
 
+
 def main():
     from tokenizers import Tokenizer
+
     from fabrique.loading import load_from_pretrained
     from fabrique.models.phi.load_rules import RULES
+
     model_id = "microsoft/Phi-3-mini-128k-instruct"
     model_args = {"max_seq_len": 512, "max_batch_size": 1}
 
-    tokenizer, model, hf_config = load_from_pretrained(Tokenizer, ModelArgs, Transformer, RULES, model_id, **model_args)
+    tokenizer, model, hf_config = load_from_pretrained(
+        Tokenizer, ModelArgs, Transformer, RULES, model_id, **model_args
+    )
     tokens = tokenizer.encode("Once upon a time").ids
     tokens = jnp.array(tokens).reshape(1, -1)
     out = model(tokens, 0).argmax(axis=-1).reshape(-1)
     tokenizer.decode(out)
-

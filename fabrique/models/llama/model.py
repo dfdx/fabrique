@@ -9,7 +9,10 @@ import jax.numpy as jnp
 from flax import nnx
 
 from fabrique.models.common.cache import KVCache, concatenate_to_cache
-from fabrique.models.common.embeddings import apply_rotary_pos_emb, create_sinusoidal_positions
+from fabrique.models.common.embeddings import (
+    apply_rotary_pos_emb,
+    create_sinusoidal_positions,
+)
 from fabrique.models.common.norm import RMSNorm
 from fabrique.models.common.utils import repeat_kv
 
@@ -142,7 +145,9 @@ class Attention(nnx.Module):
         if self.args.use_cache:
             # shape of kv after concatenating to the cache is
             # [bs, max_seq_len, n_heads, head_dim]
-            xk, xv, mask = concatenate_to_cache(self.cache_k, self.cache_v, xk, xv, xq, mask, start_pos)
+            xk, xv, mask = concatenate_to_cache(
+                self.cache_k, self.cache_v, xk, xv, xq, mask, start_pos
+            )
 
         # repeat k/v heads if n_kv_heads < n_heads
         xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
