@@ -247,29 +247,27 @@ def sample(
 
 
 def example():
-    from fabrique.models.llama import Llama
+    from fabrique.models.llm import LLM
 
-    model_id = "meta-llama/Meta-Llama-3-8B"
+    model_id = "microsoft/Phi-3-mini-128k-instruct"
     kwargs = {
-        "max_seq_len": 256,
+        "max_seq_len": 512,
         "max_batch_size": 1,
-        "dtype": jnp.bfloat16,
-        "param_dtype": jnp.bfloat16,
     }
-    llama = Llama.from_pretrained(model_id, **kwargs)
-    model, tokenizer = llama.model, llama.tokenizer
+    llm = LLM.from_pretrained(model_id, **kwargs)
+    model, tokenizer, hf_config = llm.model, llm.tokenizer, llm.hf_config
 
     # prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
-    prompt = """Once upon a time, in a kingdom far far away"""
+    prompt = """<|user|>How to print a value in Python?<|end|><assistant>"""
     prompt_tokens = tokenizer.encode(prompt).ids
     prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
 
     sequences = greedy(
         model,
         prompt_tokens,
-        pad_token_id=llama.hf_config["eos_token_id"],
-        eos_token_id=llama.hf_config["eos_token_id"],
-        max_length=llama.model.args.max_seq_len,
+        pad_token_id=hf_config["eos_token_id"],
+        eos_token_id=hf_config["eos_token_id"],
+        max_length=model.args.max_seq_len,
     )
-    out = llama.tokenizer.decode(sequences[0])
+    out = tokenizer.decode(sequences[0])
     print(out)
