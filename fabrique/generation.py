@@ -23,6 +23,10 @@ class GreedyState:
     is_sent_finished: jnp.ndarray
     start_pos: int
     model_state: nnx.State
+    static: nnx.GraphDef
+    pad_token_id: jnp.ndarray  # doesn't change
+    eos_token_id: jnp.ndarray  # doesn't change
+    max_length: jnp.ndarray  # doesn't change
 
 
 @flax.struct.dataclass
@@ -34,6 +38,61 @@ class SampleState:
     prng_key: jnp.ndarray
     start_pos: int
     cache: jax.Array
+
+
+def greedy_search_cond_fn(state):
+    """state termination condition fn."""
+    has_reached_max_length = state.cur_len == state.max_length
+    all_sequence_finished = jnp.all(state.is_sent_finished)
+    finish_generation = jnp.logical_or(has_reached_max_length, all_sequence_finished)
+    return ~finish_generation
+
+
+def greedy_search_body_fn(state):
+    """state update fn."""
+    model_state = state.model_state
+    static = state.static
+    model = nnx.merge(static, model_state)
+    logits = model(state.running_token, state.start_pos)
+    next_token_logits = logits[:, -1]
+
+    next_token = jnp.argmax(next_token_logits, axis=-1)
+
+    pad_token_id = state.pad_token_id
+    eos_token_id = state.eos_token_id
+    next_token = (
+        next_token * ~state.is_sent_finished + pad_token_id * state.is_sent_finished
+    )
+    next_is_sent_finished = state.is_sent_finished | (next_token == eos_token_id)
+    next_token = next_token[:, None]
+
+    next_sequences = lax.dynamic_update_slice(
+        state.sequences, next_token, (0, state.cur_len)
+    )
+    # next_start_pos = state.start_pos + state.running_token.shape[-1]
+    next_start_pos = state.cur_len
+    # next_cache = v_upd["cache"]
+
+    _, next_model_state = nnx.split(model, ...)
+    return state.replace(
+        cur_len=state.cur_len + 1,
+        sequences=next_sequences,
+        running_token=next_token,
+        is_sent_finished=next_is_sent_finished,
+        start_pos=next_start_pos,
+        model_state=next_model_state,
+    )
+
+    # return GreedyState(
+    #     cur_len=state.cur_len + 1,
+    #     sequences=next_sequences,
+    #     running_token=next_token,
+    #     is_sent_finished=next_is_sent_finished,
+    #     start_pos=next_start_pos,
+    #     # cache=next_cache,
+    #     model_state=next_model_state,
+    #     static=static,
+    # )
 
 
 def greedy(
@@ -66,56 +125,17 @@ def greedy(
         is_sent_finished=is_sent_finished,
         start_pos=0,
         model_state=model_state,
+        static=static,
+        pad_token_id=pad_token_id,  # type: ignore
+        eos_token_id=eos_token_id,  # type: ignore
+        max_length=max_length,  # type: ignore
     )
-
-    def greedy_search_cond_fn(state):
-        """state termination condition fn."""
-        has_reached_max_length = state.cur_len == max_length
-        all_sequence_finished = jnp.all(state.is_sent_finished)
-        finish_generation = jnp.logical_or(
-            has_reached_max_length, all_sequence_finished
-        )
-        return ~finish_generation
-
-    def greedy_search_body_fn(state):
-        """state update fn."""
-        model_state = state.model_state
-        model = nnx.merge(static, model_state)
-        logits = model(state.running_token, state.start_pos)
-        next_token_logits = logits[:, -1]
-
-        next_token = jnp.argmax(next_token_logits, axis=-1)
-
-        next_token = (
-            next_token * ~state.is_sent_finished + pad_token_id * state.is_sent_finished
-        )
-        next_is_sent_finished = state.is_sent_finished | (next_token == eos_token_id)
-        next_token = next_token[:, None]
-
-        next_sequences = lax.dynamic_update_slice(
-            state.sequences, next_token, (0, state.cur_len)
-        )
-        # next_start_pos = state.start_pos + state.running_token.shape[-1]
-        next_start_pos = state.cur_len
-        # next_cache = v_upd["cache"]
-
-        _, next_model_state = nnx.split(model, ...)
-        return GreedyState(
-            cur_len=state.cur_len + 1,
-            sequences=next_sequences,
-            running_token=next_token,
-            is_sent_finished=next_is_sent_finished,
-            start_pos=next_start_pos,
-            # cache=next_cache,
-            model_state=next_model_state,
-        )
 
     # The very first prompt often has sequence length > 1, so run outside of `lax.while_loop` to comply with TPU
     if prompt_tokens.shape[1] > 1:
         state = greedy_search_body_fn(state)
     state = lax.while_loop(greedy_search_cond_fn, greedy_search_body_fn, state)
     # state = debug_while_loop(greedy_search_cond_fn, greedy_search_body_fn, state)
-
     return state.sequences
 
 
@@ -258,7 +278,7 @@ def example():
     model, tokenizer, hf_config = llm.model, llm.tokenizer, llm.hf_config
 
     # prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
-    prompt = """<|user|>How to print a value in Python?<|end|><assistant>"""
+    prompt = """<|user|>\nHow to print a value in Python? How to format values of different forms<|end|>\n<|assistant|>"""
     prompt_tokens = tokenizer.encode(prompt).ids
     prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
 
@@ -271,3 +291,7 @@ def example():
     )
     out = tokenizer.decode(sequences[0])
     print(out)
+
+    pad_token_id = hf_config["pad_token_id"]
+    eos_token_id = hf_config["eos_token_id"]
+    max_length = 512
