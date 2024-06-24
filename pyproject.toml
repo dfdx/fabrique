@@ -5,9 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fabrique"
 version = "0.1.0"
-description = "Research-friendly implementations of LLMs in JAX"
+description = "Research-friendly implementation of LLMs in JAX"
+authors = [
+  { name="Andrei Zhabinski", email="andrei.zhabinski@gmail.com" },
+]
 readme = "README.md"
 requires-python = ">=3.10.0"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+
 dependencies = [
     "flax>=0.8.4",
     "optax>=0.2.2",
@@ -15,6 +24,10 @@ dependencies = [
     "safetensors>=0.4.3",
     "huggingface-hub>=0.23.1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/dfdx/fabrique"
+
 
 [project.optional-dependencies]
 dev = [

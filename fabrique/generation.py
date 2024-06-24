@@ -278,7 +278,7 @@ def example():
     model, tokenizer, hf_config = llm.model, llm.tokenizer, llm.hf_config
 
     # prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
-    prompt = """<|user|>\nHow to print a value in Python? How to format values of different forms<|end|>\n<|assistant|>"""
+    prompt = """<|user|>\nWrite a long poem about Disney Land<|end|>\n<|assistant|>"""
     prompt_tokens = tokenizer.encode(prompt).ids
     prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
 
