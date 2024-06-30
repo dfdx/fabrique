@@ -1,6 +1,6 @@
 from fabrique.loading import LoadConfig
 from fabrique.models.llama.load_rules import RULES
-from fabrique.models.llama.model import ModelArgs, Transformer
+from fabrique.models.llama.modeling import ModelArgs, Transformer
 
 LOAD_CONFIG = LoadConfig(
     model_types=["llama"],

@@ -6,7 +6,7 @@ from multimethod import multimethod
 from transformers.models.llama import modeling_flax_llama as hf
 from transformers.models.llama import modeling_llama as pt
 
-from fabrique.llama.model import (  # precompute_freqs_cis,; view_as_complex,; view_as_real,
+from fabrique.models.llama.modeling import (  # precompute_freqs_cis,; view_as_complex,; view_as_real,
     Attention,
     FeedForward,
     ModelArgs,
