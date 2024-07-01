@@ -185,6 +185,7 @@ class Attention(nnx.Module):
         Returns:
             jax.Array: Output array after attention.
         """
+        # TODO: update docstring
         bsz, seq_len, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
@@ -223,12 +224,7 @@ class FeedForward(nnx.Module):
 
     def __init__(
         self,
-        dim: int,
-        hidden_dim: int,
-        multiple_of: int,
-        ffn_dim_multiplier: Optional[float],
-        dtype: jnp.dtype = jnp.float32,
-        param_dtype: jnp.dtype = jnp.float32,
+        args: ModelArgs,
         rngs: nnx.Rngs = nnx.Rngs(params=0),
     ):
         """
@@ -246,33 +242,36 @@ class FeedForward(nnx.Module):
             w3 (Linear): Linear transformation for the third layer.
 
         """
-        self.dim = dim
-        self.hidden_dim = hidden_dim
-        self.multiple_of = multiple_of
-        self.ffn_dim_multiplier = ffn_dim_multiplier
-        self.dtype = dtype
-        self.param_dtype = param_dtype
-        # hidden_dim = int(2 * hidden_dim / 3)
-        # custom dim factor multiplier
-        if self.ffn_dim_multiplier is not None:
-            hidden_dim = int(self.ffn_dim_multiplier * hidden_dim)
-        hidden_dim = self.multiple_of * (
-            (hidden_dim + self.multiple_of - 1) // self.multiple_of
-        )
+        # TODO: update docstring
         linear = partial(
             nnx.Linear,
-            use_bias=False,
-            param_dtype=self.param_dtype,
-            dtype=self.dtype,
-            rngs=rngs,
+            kernel_init=jax.nn.initializers.normal(args.initializer_range),
+            param_dtype=args.param_dtype,
+            dtype=args.dtype,
+            rngs=rngs
         )
-        self.w1 = linear(dim, 2 * hidden_dim)  # gate + up projection
-        self.w2 = linear(hidden_dim, dim)  # down projection
+        self.w1 = linear(args.dim, args.ffn_hidden_size)
+        self.w2 = linear(args.ffn_hidden_size, args.dim)
+        self.norm = nnx.LayerNorm(
+            num_features=args.dim,
+            epsilon=args.norm_eps,
+            param_dtype=args.param_dtype,
+            dtype=args.dtype,
+            rngs=rngs
+        )
+        self.dropout = nnx.Dropout(rate=args.hidden_dropout_rate)
 
-    def __call__(self, x):
-        gate_up = self.w1(x)
-        gate, up = jnp.split(gate_up, 2, axis=-1)
-        return self.w2(up * nnx.silu(gate))
+
+    def __call__(self, x, deterministic=True):
+        out = self.w1(x)
+        print_var("after w1", out)
+        out = nnx.gelu(out, approximate=False)
+        print_var("after gelu", out)
+        out = self.w2(out)
+        print_var("after w2", out)
+        out = self.dropout(out, deterministic=deterministic)
+        out = self.norm(out + x)
+        return out
 
 
 class TransformerBlock(nnx.Module):
@@ -424,8 +423,11 @@ def main():
     self(x, mask)
 
 
-    from transformers.models.bert.modeling_flax_bert import FlaxBertAttention
     from transformers.models.bert.configuration_bert import BertConfig
+    config = BertConfig()
+
+
+    from transformers.models.bert.modeling_flax_bert import FlaxBertAttention
 
     hf_attn = FlaxBertAttention(BertConfig())
     variables = hf_attn.init(jax.random.key(0), x, mask, None)
@@ -440,6 +442,22 @@ def main():
     hf_attn.apply(variables, x, mask, None)
 
 
+    from transformers.models.bert.modeling_flax_bert import FlaxBertIntermediate, FlaxBertOutput
+
+    ff = FeedForward(args)
+    ff(x)
+    hf_int = FlaxBertIntermediate(config)
+    int_variables = hf_int.init(jax.random.key(0), x)
+    int_variables["params"]["dense"]["kernel"] = ff.w1.kernel.value
+    int_variables["params"]["dense"]["bias"] = ff.w1.bias.value
+    hf_res = hf_int.apply(int_variables, x)
+    hf_output = FlaxBertOutput(config)
+    out_variables = hf_output.init(jax.random.key(0), hf_res, x)
+    out_variables["params"]["dense"]["kernel"] = ff.w2.kernel.value
+    out_variables["params"]["dense"]["bias"] = ff.w2.bias.value
+    hf_res = hf_output.apply(out_variables, hf_res, x)
+
+
 
     tokenizer, model, hf_config = load_from_pretrained(
         Tokenizer, ModelArgs, Transformer, RULES, model_id, **model_args
@@ -448,3 +466,7 @@ def main():
     tokens = jnp.array(tokens).reshape(1, -1)
     out = model(tokens, 0).argmax(axis=-1).reshape(-1)
     tokenizer.decode(out)
+
+
+    # my_shortcuts = [{'command': 'IPython:auto_suggest.accept', 'new_keys': ['end']}]
+    # %config TerminalInteractiveShell.shortcuts = my_shortcuts
