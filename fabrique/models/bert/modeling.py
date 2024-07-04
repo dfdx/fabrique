@@ -88,32 +88,16 @@ class Embeddings(nnx.Module):
         )
         self.dropout = nnx.Dropout(rate=args.hidden_dropout_rate)
 
-    def __call__(self, tokens, token_types, position_ids, deterministic: bool = True):
+    def __call__(self, tokens, segment_tokens, position_ids, deterministic: bool = True):
         inputs_embeds = self.word_embeddings(tokens.astype("i4"))
         position_embeds = self.position_embeddings(position_ids.astype("i4"))
-        token_type_embeddings = self.token_type_embeddings(token_types.astype("i4"))
+        token_type_embeddings = self.token_type_embeddings(segment_tokens.astype("i4"))
 
         x = inputs_embeds + token_type_embeddings + position_embeds
 
         x = self.norm(x)
         x = self.dropout(x, deterministic=deterministic)
         return x
-
-
-# def attention_weights_dropout(attn_weights: jax.Array, deterministic: bool, dropout_rate: float, broadcast_dropout: bool, dtype: jnp.dtype):
-#     # from flax.linen.attention.dot_product_attention_weights()
-#     # https://github.com/google/flax/blob/main/flax/linen/attention.py#L136-L146
-#     if not deterministic and dropout_rate > 0.0:
-#         keep_prob = 1.0 - dropout_rate
-#         if broadcast_dropout:
-#             # dropout is broadcast across the batch + head dimensions
-#             dropout_shape = tuple([1] * (key.ndim - 2)) + attn_weights.shape[-2:]
-#             keep = jax.random.bernoulli(dropout_rng, keep_prob, dropout_shape)  # type: ignore
-#         else:
-#             keep = jax.random.bernoulli(dropout_rng, keep_prob, attn_weights.shape)  # type: ignore
-#         multiplier = keep.astype(dtype) / jnp.asarray(keep_prob, dtype=dtype)
-#         attn_weights = attn_weights * multiplier
-#     return attn_weights
 
 
 class Attention(nnx.Module):
@@ -197,7 +181,6 @@ class Attention(nnx.Module):
         xk = jnp.moveaxis(xk, 1, 2)
         xv = jnp.moveaxis(xv, 1, 2)
 
-
         scores = jnp.matmul(xq, jnp.moveaxis(xk, 2, 3)) / math.sqrt(self.head_dim)
         if mask is not None:
             # so far we used mask with 1s to mean "attend" and 0s to mean "ignore"
@@ -264,11 +247,8 @@ class FeedForward(nnx.Module):
 
     def __call__(self, x, deterministic=True):
         out = self.w1(x)
-        print_var("after w1", out)
         out = nnx.gelu(out, approximate=False)
-        print_var("after gelu", out)
         out = self.w2(out)
-        print_var("after w2", out)
         out = self.dropout(out, deterministic=deterministic)
         out = self.norm(out + x)
         return out
@@ -293,34 +273,12 @@ class TransformerBlock(nnx.Module):
             ffn_norm (RMSNorm): Layer normalization for feedforward output.
 
         """
+        # TODO: update docstring
         self.args = args
-        self.n_heads = args.n_heads
-        self.dim = args.dim
-        self.head_dim = args.dim // args.n_heads
         self.attention = Attention(args, rngs=rngs)
-        self.feed_forward = FeedForward(
-            dim=args.dim,
-            hidden_dim=args.ffn_hidden_size,
-            multiple_of=args.multiple_of,
-            ffn_dim_multiplier=args.ffn_dim_multiplier,
-            dtype=self.args.dtype,
-            param_dtype=self.args.param_dtype,
-            rngs=rngs,
-        )
-        self.attention_norm = RMSNorm(
-            args.dim, eps=args.norm_eps, param_dtype=args.param_dtype
-        )
-        self.ffn_norm = RMSNorm(
-            args.dim, eps=args.norm_eps, param_dtype=args.param_dtype
-        )
+        self.feed_forward = FeedForward(args, rngs=rngs)
 
-    def __call__(
-        self,
-        x: jax.Array,
-        start_pos: int,
-        sincos: jax.Array,
-        full_causal_mask: jax.Array,
-    ):
+    def __call__(self, x: jax.Array, mask: jax.Array | None, deterministic: bool = True):
         """
         Perform a forward pass through the TransformerBlock.
 
@@ -334,11 +292,28 @@ class TransformerBlock(nnx.Module):
             jax.Array: Output tensor after applying attention and feedforward layers.
 
         """
-        h = x + self.attention(
-            self.attention_norm(x), start_pos, sincos, full_causal_mask
-        )
-        out = h + self.feed_forward(self.ffn_norm(h))
+        # TODO: update docstring
+        h = self.attention(x, mask, deterministic=deterministic)
+        out = self.feed_forward(h)
         return out
+
+
+class Pooler(nnx.Module):
+
+    def __init__(self, args: ModelArgs, rngs: nnx.Rngs):
+        self.w = nnx.Linear(
+            1,
+            args.dim,
+            kernel_init=jax.nn.initializers.normal(self.config.initializer_range),
+            param_dtype=args.param_dtype,
+            dtype=args.dtype,
+            rngs=rngs,
+        )
+
+    def __call__(self, x):
+        out = x[:, 0]
+        out = self.w(out)
+        return nnx.tanh(out)
 
 
 class Transformer(nnx.Module):
@@ -361,31 +336,30 @@ class Transformer(nnx.Module):
             sincos (jax.Array): Precomputed cosine and sine frequencies.
 
         """
+        # TODO: update docstring
         self.args = args
-        self.vocab_size = args.vocab_size
-        self.n_layers = args.n_layers
+        # self.vocab_size = args.vocab_size
+        # self.n_layers = args.n_layers
 
-        self.tok_embeddings = nnx.Embed(
-            num_embeddings=args.vocab_size,
-            features=args.dim,
-            dtype=args.dtype,
-            param_dtype=args.param_dtype,
-            rngs=rngs,
-        )
-
+        # self.tok_embeddings = nnx.Embed(
+        #     num_embeddings=args.vocab_size,
+        #     features=args.dim,
+        #     dtype=args.dtype,
+        #     param_dtype=args.param_dtype,
+        #     rngs=rngs,
+        # )
+        self.embeddings = Embeddings(args, rngs=rngs)
         self.layers = [TransformerBlock(args, rngs=rngs) for _ in range(args.n_layers)]
+        self.pooler = Pooler(args, rngs=rngs)
 
-        self.norm = RMSNorm(args.dim, eps=args.norm_eps)
-        self.output = nnx.Linear(args.dim, args.vocab_size, use_bias=False, rngs=rngs)
-
-        self.sincos = create_sinusoidal_positions(
-            args.max_seq_len, args.dim // args.n_heads
-        )
-        self.causal_mask = nnx.make_causal_mask(
-            jnp.ones((1, args.max_seq_len), dtype="bool"), dtype="bool"
-        )
-
-    def __call__(self, tokens: jax.Array, start_pos: int):
+    def __call__(
+            self,
+            tokens: jax.Array,
+            mask: jax.Array | None = None,
+            segments: jax.Array | None = None,
+            pool: bool = False,
+            deterministic = True,
+    ):
         """
         Perform a forward pass through the Transformer model.
 
@@ -396,11 +370,18 @@ class Transformer(nnx.Module):
         Returns:
             jax.Array: Output logits after applying the Transformer model.
         """
-        h = self.tok_embeddings(tokens)
+        # TODO: update docstring
+        if mask is None:
+            mask = jnp.ones_like(tokens)
+        if segments is None:
+            segments = jnp.zeros_like(tokens)
+        position_ids = jnp.broadcast_to(jnp.arange(tokens.shape[-1]), tokens.shape)
+        h = self.embeddings(tokens, segments, position_ids, deterministic=deterministic)
         for i, layer in enumerate(self.layers):
-            h = layer(h, start_pos, self.sincos, self.causal_mask)
-        h = self.norm(h)
-        output = self.output(h).astype("float32")
+            h = layer(h, mask, deterministic=deterministic)
+        if pool:
+            h = self.pool(h)
+        output = h.astype("float32")
         return output
 
 
@@ -457,6 +438,30 @@ def main():
     out_variables["params"]["dense"]["bias"] = ff.w2.bias.value
     hf_res = hf_output.apply(out_variables, hf_res, x)
 
+
+    from transformers.models.bert.modeling_flax_bert import FlaxBertLayer
+
+    block = TransformerBlock(args, nnx.Rngs(params=0))
+    block(x, mask)
+
+    hf_block = FlaxBertLayer(config)
+    variables = hf_block.init(jax.random.key(0), x, mask, None)
+    variables["params"]["attention"]["self"]["query"]["kernel"] = block.attention.wq.kernel.value
+    variables["params"]["attention"]["self"]["query"]["bias"] = block.attention.wq.bias.value
+    variables["params"]["attention"]["self"]["key"]["kernel"] = block.attention.wk.kernel.value
+    variables["params"]["attention"]["self"]["key"]["bias"] = block.attention.wk.bias.value
+    variables["params"]["attention"]["self"]["value"]["kernel"] = block.attention.wv.kernel.value
+    variables["params"]["attention"]["self"]["value"]["bias"] = block.attention.wv.bias.value
+    variables["params"]["attention"]["output"]["dense"]["kernel"] = block.attention.wo.kernel.value
+    variables["params"]["attention"]["output"]["dense"]["bias"] = block.attention.wo.bias.value
+    variables["params"]["intermediate"]["dense"]["kernel"] = block.feed_forward.w1.kernel.value
+    variables["params"]["intermediate"]["dense"]["bias"] = block.feed_forward.w1.bias.value
+    variables["params"]["output"]["dense"]["kernel"] = block.feed_forward.w2.kernel.value
+    variables["params"]["output"]["dense"]["bias"] = block.feed_forward.w2.bias.value
+    variables["params"]["output"]["LayerNorm"]["scale"] = block.feed_forward.norm.scale.value
+    variables["params"]["output"]["LayerNorm"]["bias"] = block.feed_forward.norm.bias.value
+
+    hf_block.apply(variables, x, mask, None)
 
 
     tokenizer, model, hf_config = load_from_pretrained(
