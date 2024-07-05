@@ -12,8 +12,10 @@ class LLM:
         self.hf_config = hf_config
 
     @staticmethod
-    def from_pretrained(repo_id: str, **model_args):
-        tokenizer, model, hf_config = from_pretrained(repo_id, **model_args)
+    def from_pretrained(repo_id: str, revision: str | None = None, **model_args):
+        tokenizer, model, hf_config = from_pretrained(
+            repo_id, revision=revision, **model_args
+        )
         return LLM(tokenizer, model, hf_config)
 
     def generate(self, prompt: str):

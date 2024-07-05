@@ -3,7 +3,7 @@ import os
 import pkgutil
 import re
 from dataclasses import dataclass
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 import jax
 import safetensors.flax as st
@@ -140,7 +140,7 @@ def get_load_config(model_type: str):
     return ret
 
 
-def from_pretrained(repo_id: str, **model_args):
+def from_pretrained(repo_id: str, revision: str | None = None, **model_args):
     """
     Load a model from a Huggingface Hub.
 
@@ -151,7 +151,7 @@ def from_pretrained(repo_id: str, **model_args):
     Returns:
         Tuple of (tokenizer, model, hf_config).
     """
-    model_dir = snapshot_download(repo_id, repo_type="model")
+    model_dir = snapshot_download(repo_id, revision=revision, repo_type="model")
     # load config
     config_file = os.path.join(model_dir, "config.json")
     with open(config_file) as fp:
