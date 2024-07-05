@@ -87,10 +87,17 @@ def update_model_from_safe(
     """
     Update Flax NNX model from a Huggingface model directory
     """
-    with open(os.path.join(model_dir, "model.safetensors.index.json")) as fp:
-        index = json.load(fp)
-    safe_files_ = set(index["weight_map"].values())
-    safe_files = [os.path.join(model_dir, filename) for filename in safe_files_]
+    index_file = os.path.join(model_dir, "model.safetensors.index.json")
+    model_file = os.path.join(model_dir, "model.safetensors")
+    if os.path.isfile(index_file):
+        with open(index_file) as fp:
+            index = json.load(fp)
+        safe_files_ = set(index["weight_map"].values())
+        safe_files = [os.path.join(model_dir, filename) for filename in safe_files_]
+    elif os.path.isfile(model_file):
+        safe_files = [model_file]
+    else:
+        raise ValueError(f"Can't find safetensor files in {model_dir}")
     for path in tqdm(safe_files):
         flat = st.load_file(path)
         apply_rules(model, rules, flat)

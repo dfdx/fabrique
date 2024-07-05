@@ -1,8 +1,14 @@
 import re
+import logging
 from typing import Dict, List
 
+import jax
 from flax.core import FrozenDict
 from jax import tree_util
+
+
+logger = logging.getLogger(__name__)
+
 
 AnyDict = Dict | FrozenDict
 DictOrList = List | AnyDict
@@ -144,6 +150,13 @@ def set_nested_attr(nested_obj, fields: List[str], val):
             obj = getattr(obj, field)
     last_field = fields[-1]
     ensure_field(obj, last_field)
+    old_val = getattr(obj, last_field)
+    if type(old_val) != type(val):
+        logger.warning(f"Field {'.'.join(fields)} has type {type(old_val)}, " +
+                       f"but setting it to value of type {type(val)}")
+    if isinstance(old_val, jax.Array) and isinstance(val, jax.Array) and old_val.shape != val.shape:
+        logger.warning(f"Field {'.'.join(fields)} has shape {old_val.shape}, " +
+                       f"but setting it to array of shape {val.shape}")
     setattr(obj, last_field, val)
     return nested_obj
 

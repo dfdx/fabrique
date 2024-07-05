@@ -24,11 +24,11 @@ class ModelArgs:
     n_layers: int = 12            # num_hidden_layers
     n_heads: int = 12             # num_attention_heads
     vocab_size: int = 30522
-    type_vocab_size: int = 2
+    segment_vocab_size: int = 2
     ffn_hidden_size: int = 3072   # intermediate_size
-    hidden_dropout_rate=0.1
-    attn_weight_dropout_rate=0.1
-    classifier_dropout=None
+    hidden_dropout_rate: float = 0.1
+    attn_weight_dropout_rate: float =0.1
+    classifier_dropout: float | None = None
     max_seq_len: int = 512         # max_position_embeddings
     initializer_range: float = 0.02
     norm_eps: float = 1e-12        # layer_norm_eps
@@ -49,11 +49,11 @@ class ModelArgs:
             n_layers=config["num_hidden_layers"],
             n_heads=config["num_attention_heads"],
             vocab_size=config["vocab_size"],
-            type_vocab_size=config["type_vocab_size"],
+            segment_vocab_size=config["type_vocab_size"],
             ffn_hidden_size=config["intermediate_size"],
             hidden_dropout_rate=config["hidden_dropout_prob"],
             attn_weight_dropout_rate=config["attention_probs_dropout_prob"],
-            classifier_dropout=config["classifier_dropout"],
+            classifier_dropout=config.get("classifier_dropout"),
             norm_eps=config["layer_norm_eps"],
             max_seq_len=config["max_position_embeddings"],
             pad_token_id=config["pad_token_id"]
@@ -64,7 +64,7 @@ class ModelArgs:
 
 
 class Embeddings(nnx.Module):
-    """Construct the embeddings from word, position and token_type embeddings."""
+    """Construct the embeddings from word, position and segment embeddings."""
 
     def __init__(self, args: ModelArgs, rngs: nnx.Rngs = nnx.Rngs(params=0)):
         self.args = args
@@ -75,9 +75,9 @@ class Embeddings(nnx.Module):
             dtype=args.dtype,
             rngs=rngs,
         )
-        self.word_embeddings = embedding(args.vocab_size, args.dim)
         self.position_embeddings = embedding(args.max_seq_len, args.dim)
-        self.token_type_embeddings = embedding(args.vocab_size, args.dim)
+        self.token_embeddings = embedding(args.vocab_size, args.dim)
+        self.segment_embeddings = embedding(args.segment_vocab_size, args.dim)
 
         self.norm = nnx.LayerNorm(
             num_features=args.dim,
@@ -89,11 +89,11 @@ class Embeddings(nnx.Module):
         self.dropout = nnx.Dropout(rate=args.hidden_dropout_rate)
 
     def __call__(self, tokens, segment_tokens, position_ids, deterministic: bool = True):
-        inputs_embeds = self.word_embeddings(tokens.astype("i4"))
+        token_embeddings = self.token_embeddings(tokens.astype("i4"))
         position_embeds = self.position_embeddings(position_ids.astype("i4"))
-        token_type_embeddings = self.token_type_embeddings(segment_tokens.astype("i4"))
+        segment_embeddings = self.segment_embeddings(segment_tokens.astype("i4"))
 
-        x = inputs_embeds + token_type_embeddings + position_embeds
+        x = token_embeddings + segment_embeddings + position_embeds
 
         x = self.norm(x)
         x = self.dropout(x, deterministic=deterministic)
@@ -302,9 +302,9 @@ class Pooler(nnx.Module):
 
     def __init__(self, args: ModelArgs, rngs: nnx.Rngs):
         self.w = nnx.Linear(
-            1,
             args.dim,
-            kernel_init=jax.nn.initializers.normal(self.config.initializer_range),
+            args.dim,
+            kernel_init=jax.nn.initializers.normal(args.initializer_range),
             param_dtype=args.param_dtype,
             dtype=args.dtype,
             rngs=rngs,
@@ -338,16 +338,6 @@ class Transformer(nnx.Module):
         """
         # TODO: update docstring
         self.args = args
-        # self.vocab_size = args.vocab_size
-        # self.n_layers = args.n_layers
-
-        # self.tok_embeddings = nnx.Embed(
-        #     num_embeddings=args.vocab_size,
-        #     features=args.dim,
-        #     dtype=args.dtype,
-        #     param_dtype=args.param_dtype,
-        #     rngs=rngs,
-        # )
         self.embeddings = Embeddings(args, rngs=rngs)
         self.layers = [TransformerBlock(args, rngs=rngs) for _ in range(args.n_layers)]
         self.pooler = Pooler(args, rngs=rngs)
@@ -380,7 +370,7 @@ class Transformer(nnx.Module):
         for i, layer in enumerate(self.layers):
             h = layer(h, mask, deterministic=deterministic)
         if pool:
-            h = self.pool(h)
+            h = self.pooler(h)
         output = h.astype("float32")
         return output
 
@@ -388,16 +378,54 @@ class Transformer(nnx.Module):
 ###########################################################
 
 
+def test_bert():
+    from fabrique.loading import from_pretrained
+
+    model_id = "google-bert/bert-base-uncased"
+
+    tokenizer, model, _hf_config = from_pretrained(model_id)
+    tokens = tokenizer.encode("Once upon a time").ids
+    tokens = jnp.array(tokens).reshape(1, -1)
+    out = model(tokens)
+
+    # from huggingface model
+    expected_slice = jnp.asarray(
+        [ 0.06543218, -0.35718504, -0.3604128 ,  0.0042748 ,  0.23516399,
+        -0.09302475, -0.2931913 ,  0.6673709 , -0.02174259, -0.38075727]
+    )
+    assert jnp.allclose(out[0, 0, :10], expected_slice)
+    assert out.sum() == -80.01314
+    assert out.var() == 0.3342754
+
+    mask = jnp.ones_like(tokens)
+    mask = mask.at[0, -3:].set(0)
+    segment_tokens = jnp.zeros_like(tokens)
+    out = model(tokens, mask, segment_tokens)
+
+
+
 def main():
+    import logging, fabrique.loading
+    logging.getLogger(fabrique.loading.__name__).setLevel(logging.WARNING)
+
     from tokenizers import Tokenizer
 
     from fabrique.loading import from_pretrained
-    from fabrique.models.phi.load_rules import RULES
 
     model_id = "google-bert/bert-base-uncased"
-    model_args = {"max_seq_len": 512, "max_batch_size": 1}
+    repo_id = model_id
+    model_args = {"max_seq_len": 512}
 
-    args = ModelArgs()
+    tokenizer, model, hf_config = from_pretrained(model_id, **model_args);
+
+
+    args = ModelArgs(**model_args)
+    model = Transformer(args)
+
+
+
+
+
     self = Attention(args, rngs=nnx.Rngs(0))
     x = jax.random.normal(jax.random.key(0), (1, 5, 768))
     mask = jnp.ones((x.shape[0], x.shape[1]))
@@ -464,13 +492,33 @@ def main():
     hf_block.apply(variables, x, mask, None)
 
 
-    tokenizer, model, hf_config = load_from_pretrained(
-        Tokenizer, ModelArgs, Transformer, RULES, model_id, **model_args
-    )
+    from transformers import FlaxAutoModel
+
+    tokenizer, model, hf_config = from_pretrained(model_id, **model_args)
     tokens = tokenizer.encode("Once upon a time").ids
     tokens = jnp.array(tokens).reshape(1, -1)
-    out = model(tokens, 0).argmax(axis=-1).reshape(-1)
-    tokenizer.decode(out)
+    out = model(tokens)
+
+    # from huggingface model
+    expected_slice = jnp.asarray(
+        [ 0.06543218, -0.35718504, -0.3604128 ,  0.0042748 ,  0.23516399,
+        -0.09302475, -0.2931913 ,  0.6673709 , -0.02174259, -0.38075727]
+    )
+    assert jnp.allclose(out[0, 0, :10], expected_slice)
+    assert out.sum() == -80.01314
+    assert out.var() == 0.3342754
+
+    out_pooled = model(tokens, pool=True)
+
+    hf_model = FlaxAutoModel.from_pretrained(model_id)
+    hf_out = hf_model(tokens)
+
+    assert jnp.allclose(out, hf_out.last_hidden_state)
+    # assert jnp.allclose(out_pooled, hf_out.pooler_output)
+
+    hf_model(tokens, attention_mask=None, token_type_ids=segment_tokens).last_hidden_state
+    model(tokens, mask=None, segments=segment_tokens)
+
 
 
     # my_shortcuts = [{'command': 'IPython:auto_suggest.accept', 'new_keys': ['end']}]
