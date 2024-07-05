@@ -35,7 +35,7 @@ Citing NNX's home page:
 
 > NNX is a Neural Network library for JAX that focuses on providing the best development experience, so building and experimenting with neural networks is easy and intuitive. It achieves this by embracing Python’s object-oriented model and making it compatible with JAX transforms, resulting in code that is easy to inspect, debug, and analyze.
 
-All Fabrique models can be found in `fabrique/models/<model-name>/model.py` files. Feel free to
+All Fabrique models can be found in `fabrique/models/<model-name>/modeling.py` files. Feel free to
 copy and modify them. If something in the code is unclear, consider it a bug.
 
 
