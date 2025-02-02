@@ -79,14 +79,12 @@ RUN pip install wheel
 
 
 # add specific version of JAX directry to the container
-RUN pip install jax["cuda12"]==0.4.29
+RUN pip install jax["cuda12"]==0.5.0
 
 COPY --chown=${user}:${user} ./pyproject.toml /home/${user}/
 RUN pip install pip-tools
 RUN python -m piptools compile --extra dev -o requirements.txt pyproject.toml
 RUN pip install -r requirements.txt
-
-
 
 
 
