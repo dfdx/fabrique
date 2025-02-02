@@ -18,7 +18,7 @@ TODO
 from fabrique.models.llm import LLM
 
 
-model_id = "microsoft/Phi-3-mini-128k-instruct"
+model_id = "microsoft/phi-4"
 
 # note: use keyword arguments that fit your hardware
 llm = LLM.from_pretrained(model_id, max_batch_size=1, max_seq_len=512)

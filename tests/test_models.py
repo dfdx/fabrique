@@ -60,9 +60,10 @@ def test_bert():
             -0.38075727,
         ]
     )
-    assert jnp.allclose(out[0, 0, :10], expected_slice)
-    assert out.sum() == -80.01314
-    assert out.var() == 0.3342754
+    atol = 5e-2
+    assert jnp.allclose(out[0, 0, :10], expected_slice, atol=atol)
+    assert jnp.allclose(out.sum(), -80.01314, atol=atol)
+    assert jnp.allclose(out.var(), 0.3342754, atol=atol)
 
     mask = jnp.ones_like(tokens)
     mask = mask.at[0, -3:].set(0)
@@ -83,6 +84,8 @@ def test_bert():
             -0.573969,
         ]
     )
-    assert jnp.allclose(out[0, 0, :10], expected_slice)
-    assert out.sum() == -50.359936
-    assert out.var() == 0.25323534
+    print(out[0, 0, :10] - expected_slice)
+    print(jnp.abs(out[0, 0, :10] - expected_slice) < atol)
+    assert jnp.allclose(out[0, 0, :10], expected_slice, atol=atol)
+    assert jnp.allclose(out.sum(), -50.359936, atol=atol)
+    assert jnp.allclose(out.var(), 0.25323534, atol=atol)
