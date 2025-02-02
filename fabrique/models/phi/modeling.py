@@ -7,6 +7,7 @@ from typing import Optional
 import jax
 import jax.numpy as jnp
 from flax import nnx
+from flax.nnx.graph import Static
 
 from fabrique.models.common.cache import KVCache, concatenate_to_cache
 from fabrique.models.common.embeddings import (
@@ -339,12 +340,12 @@ class Transformer(nnx.Module):
         self.norm = RMSNorm(args.dim, eps=args.norm_eps)
         self.output = nnx.Linear(args.dim, args.vocab_size, use_bias=False, rngs=rngs)
 
-        self.sincos = create_sinusoidal_positions(
+        self.sincos = Static(create_sinusoidal_positions(
             args.max_seq_len, args.dim // args.n_heads
-        )
-        self.causal_mask = nnx.make_causal_mask(
+        ))
+        self.causal_mask = Static(nnx.make_causal_mask(
             jnp.ones((1, args.max_seq_len), dtype="bool"), dtype="bool"
-        )
+        ))
 
     def __call__(self, tokens: jax.Array, start_pos: int):
         """
@@ -359,28 +360,7 @@ class Transformer(nnx.Module):
         """
         h = self.tok_embeddings(tokens)
         for i, layer in enumerate(self.layers):
-            h = layer(h, start_pos, self.sincos, self.causal_mask)
+            h = layer(h, start_pos, self.sincos.value, self.causal_mask.value)
         h = self.norm(h)
         output = self.output(h).astype("float32")
         return output
-
-
-###########################################################
-
-
-def main():
-    from tokenizers import Tokenizer
-
-    from fabrique.loading import load_from_pretrained
-    from fabrique.models.phi.load_rules import RULES
-
-    model_id = "microsoft/Phi-3-mini-128k-instruct"
-    model_args = {"max_seq_len": 512, "max_batch_size": 1}
-
-    tokenizer, model, hf_config = load_from_pretrained(
-        Tokenizer, ModelArgs, Transformer, RULES, model_id, **model_args
-    )
-    tokens = tokenizer.encode("Once upon a time").ids
-    tokens = jnp.array(tokens).reshape(1, -1)
-    out = model(tokens, 0).argmax(axis=-1).reshape(-1)
-    tokenizer.decode(out)
