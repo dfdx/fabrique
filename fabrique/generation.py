@@ -84,6 +84,7 @@ def greedy_search_body_fn(state):
     )
 
 
+@partial(nnx.jit, static_argnums=(2, 3, 4))
 def greedy(
     model,
     prompt_tokens: jax.Array,
