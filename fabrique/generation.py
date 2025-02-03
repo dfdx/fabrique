@@ -83,18 +83,8 @@ def greedy_search_body_fn(state):
         model_state=next_model_state,
     )
 
-    # return GreedyState(
-    #     cur_len=state.cur_len + 1,
-    #     sequences=next_sequences,
-    #     running_token=next_token,
-    #     is_sent_finished=next_is_sent_finished,
-    #     start_pos=next_start_pos,
-    #     # cache=next_cache,
-    #     model_state=next_model_state,
-    #     static=static,
-    # )
 
-
+@partial(nnx.jit, static_argnums=(2, 3, 4))
 def greedy(
     model,
     prompt_tokens: jax.Array,
