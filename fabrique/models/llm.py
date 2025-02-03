@@ -18,7 +18,7 @@ class LLM:
         )
         return LLM(tokenizer, model, hf_config)
 
-    def generate(self, prompt: str):
+    def generate(self, prompt: str, new_only: bool = True):
         prompt_tokens = self.tokenizer.encode(prompt).ids
         prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
         sequences = greedy(
@@ -28,4 +28,5 @@ class LLM:
             eos_token_id=self.hf_config["eos_token_id"],
             max_length=self.model.args.max_seq_len,
         )
-        return self.tokenizer.decode(sequences[0])
+        start = prompt_tokens.shape[1] if new_only else 0
+        return self.tokenizer.decode(sequences[0][start:])

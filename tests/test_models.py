@@ -6,7 +6,7 @@ from fabrique.models.llm import LLM
 def load_and_check(model_id: str, revision: str, prompt: str, expected: str):
     kwargs = {"max_seq_len": 32, "max_batch_size": 1}
     llm = LLM.from_pretrained(model_id, revision=revision, **kwargs)
-    result = llm.generate(prompt)
+    result = llm.generate(prompt, new_only=False)
     assert isinstance(result, str)
     assert result == expected
 
