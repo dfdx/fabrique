@@ -172,3 +172,14 @@ def cache_layout(model, layer_id=0):
     x = model.layers[layer_id].attention.cache_k.value
     flags = x.sum(axis=2)[0, :, 0] != 0
     return flags.astype(int)
+
+
+def check_and_update_fields(args, **kwargs):
+    for k, v in kwargs.items():
+        if hasattr(args, k):
+            setattr(args, k, v)
+        else:
+            klass = args.__class__
+            full_class_name = f"{klass.__module__}.{klass}"
+            raise ValueError(f"{full_class_name} doesn't have attribute {k}")
+    return args

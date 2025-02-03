@@ -16,6 +16,7 @@ from fabrique.models.common.embeddings import (
 )
 from fabrique.models.common.norm import RMSNorm
 from fabrique.models.common.utils import repeat_kv
+from fabrique.utils import check_and_update_fields
 
 
 @dataclass
@@ -55,9 +56,7 @@ class ModelArgs:
             # max_batch_size=
             max_seq_len=config["max_position_embeddings"],
         )
-        for k, v in kwargs.items():
-            setattr(args, k, v)
-        return args
+        return check_and_update_fields(args, **kwargs)
 
 
 class Attention(nnx.Module):
