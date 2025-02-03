@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 
-from fabrique.generation import greedy
+from fabrique.generation import sample
 from fabrique.loading import from_pretrained
 
 
@@ -21,7 +21,7 @@ class LLM:
     def generate(self, prompt: str, new_only: bool = True):
         prompt_tokens = self.tokenizer.encode(prompt).ids
         prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
-        sequences = greedy(
+        sequences = sample(
             self.model,
             prompt_tokens,
             pad_token_id=self.hf_config["eos_token_id"],
