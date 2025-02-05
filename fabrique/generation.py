@@ -76,7 +76,7 @@ def sample(
     temperature: float = 1.0,
     top_p: float = 1.0,
     top_k: int = 50,
-    prng_key: jax.Array | None = None
+    prng_key: jax.Array = jax.random.key(0)
 ):
     def sample_cond_fn(state: SampleState):
         """state termination condition fn."""
@@ -161,45 +161,45 @@ def sample(
 ################################################################
 
 
-def example():
-    from fabrique.models.llm import LLM
+# def example():
+#     from fabrique.models.llm import LLM
 
-    llm = LLM.from_pretrained(
-        "meta-llama/Meta-Llama-3-8B-Instruct",
-        max_batch_size=1,
-        max_seq_len=4096,
-        dtype=jnp.bfloat16,
-        param_dtype=jnp.bfloat16
-    )
-    model, tokenizer, hf_config = llm.model, llm.tokenizer, llm.hf_config
+#     llm = LLM.from_pretrained(
+#         "meta-llama/Meta-Llama-3-8B-Instruct",
+#         max_batch_size=1,
+#         max_seq_len=4096,
+#         dtype=jnp.bfloat16,
+#         param_dtype=jnp.bfloat16
+#     )
+#     model, tokenizer, hf_config = llm.model, llm.tokenizer, llm.hf_config
 
-    # prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
-    prompt = """<|user|>\nWrite a long poem about Disney Land<|end|>\n<|assistant|>"""
-    prompt_tokens = tokenizer.encode(prompt).ids
-    prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
+#     # prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
+#     prompt = """<|user|>\nWrite a long poem about Disney Land<|end|>\n<|assistant|>"""
+#     prompt_tokens = tokenizer.encode(prompt).ids
+#     prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
 
-    jax.config.update("jax_explain_cache_misses", True)
+#     jax.config.update("jax_explain_cache_misses", True)
 
-    rngs = nnx.Rngs(0)
+#     rngs = nnx.Rngs(0)
 
-    sequences = sample(
-        model,
-        prompt_tokens,
-        pad_token_id=hf_config["eos_token_id"],
-        eos_token_id=hf_config["eos_token_id"],
-        max_length=512,
-        temperature=2,
-        # top_p=0.5,
-        # top_k=3,
-        prng_key=rngs()
-    )
-    out = tokenizer.decode(sequences[0])
-    print(out)
+#     sequences = sample(
+#         model,
+#         prompt_tokens,
+#         pad_token_id=hf_config["eos_token_id"],
+#         eos_token_id=hf_config["eos_token_id"],
+#         max_length=512,
+#         temperature=2,
+#         # top_p=0.5,
+#         # top_k=3,
+#         prng_key=rngs()
+#     )
+#     out = tokenizer.decode(sequences[0])
+#     print(out)
 
-    pad_token_id = hf_config.get("pad_token_id") or hf_config["eos_token_id"]
-    eos_token_id = hf_config["eos_token_id"]
-    max_length = 512
-    temperature: float = 1.0
-    top_p: float = 1.0
-    top_k: int = 50
-    rngs: nnx.Rngs = nnx.Rngs(0)
+#     pad_token_id = hf_config.get("pad_token_id") or hf_config["eos_token_id"]
+#     eos_token_id = hf_config["eos_token_id"]
+#     max_length = 512
+#     temperature: float = 1.0
+#     top_p: float = 1.0
+#     top_k: int = 50
+#     rngs: nnx.Rngs = nnx.Rngs(0)
