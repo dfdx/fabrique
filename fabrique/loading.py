@@ -2,8 +2,9 @@ import json
 import os
 import pkgutil
 import re
+import importlib
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List
 
 import jax
 import safetensors.flax as st
@@ -114,9 +115,6 @@ class LoadConfig:
     model_args_class: type
     model_class: type
     rules: List[ConversionRule]
-
-
-import importlib
 
 
 def find_load_configs():
