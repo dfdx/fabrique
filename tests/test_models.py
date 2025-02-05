@@ -1,12 +1,14 @@
+import jax
 import jax.numpy as jnp
 
 from fabrique.models.llm import LLM
 
 
 def load_and_check(model_id: str, revision: str, prompt: str, expected: str):
-    kwargs = {"max_seq_len": 32, "max_batch_size": 1}
+    kwargs = {"max_seq_len": 32, "max_batch_size": 1}  # limit cache size
     llm = LLM.from_pretrained(model_id, revision=revision, **kwargs)
-    result = llm.generate(prompt, new_only=False)
+    key = jax.random.key(818)
+    result = llm.generate(prompt, new_only=False, max_length=32, prng_key=key)
     assert isinstance(result, str)
     assert result == expected
 
@@ -15,11 +17,7 @@ def test_llama():
     model_id = "meta-llama/Meta-Llama-3-8B"
     prompt = "Once upon a time"
     revision = None
-    expected = (
-        "Once upon a time, there was a little girl "
-        + "who loved to read. She loved to read so much "
-        + "that she would read anything she could get her hands"
-    )
+    expected = "Once upon a time the British government established a board charged with running the country, the British economy and the welfare of her citizens.\nThis board was duly composed"
     load_and_check(model_id, revision, prompt, expected)
 
 
@@ -27,11 +25,7 @@ def test_phi():
     model_id = "microsoft/Phi-3-mini-4k-instruct"
     revision = "c1358f8"
     prompt = "Once upon a time"
-    expected = (
-        "Once upon a time, in a small town nestled between "
-        + "rolling hills, there lived a young woman named Emily. "
-        + "Emily was known for her vibr"
-    )
+    expected = "Once upon a time in the magical land of Wordspell, every word had its unique spell, and words were connected with pathways of letters that dan"
     load_and_check(model_id, revision, prompt, expected)
 
 

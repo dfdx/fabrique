@@ -176,8 +176,8 @@ class Attention(nnx.Module):
             # so far we used mask with 1s to mean "attend" and 0s to mean "ignore"
             # to apply it to scores, we convert it to 0s and -inf accordingly
             imask = jnp.where(mask == 0, -jnp.inf, 0)
-            imask = jnp.expand_dims(imask, [1, 2])   # (bs, 1, 1, kv_len)
-            scores = scores + imask                  # (bs, n_heads, q_len, kv_len)
+            imask = jnp.expand_dims(imask, [1, 2])  # (bs, 1, 1, kv_len)
+            scores = scores + imask  # (bs, n_heads, q_len, kv_len)
         scores = nnx.softmax(scores.astype("float32"), axis=-1).astype(xq.dtype)
 
         scores = self.attn_weight_dropout(scores, deterministic=deterministic)
