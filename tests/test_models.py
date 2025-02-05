@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-from fabrique.models.llm import LLM
+from fabrique import LLM
 
 
 def load_and_check(model_id: str, revision: str, prompt: str, expected: str):

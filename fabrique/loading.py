@@ -115,6 +115,7 @@ class LoadConfig:
     model_args_class: type
     model_class: type
     rules: List[ConversionRule]
+    chat_template: str | None = None
 
 
 def find_load_configs():
@@ -138,7 +139,15 @@ def get_load_config(model_type: str):
     return ret
 
 
-def from_pretrained(repo_id: str, revision: str | None = None, **model_args):
+def tweak_model_args(model_args):
+    "Slightly modify model args for better user experience"
+    model_args = {k: v for k, v in model_args.items()}  # make a copy
+    if "dtype" in model_args and "param_dtype" not in model_args:
+        model_args["param_dtype"] = model_args["dtype"]
+    return model_args
+
+
+def from_pretrained(model_id: str, revision: str | None = None, **model_args):
     """
     Load a model from a Huggingface Hub.
 
@@ -149,7 +158,7 @@ def from_pretrained(repo_id: str, revision: str | None = None, **model_args):
     Returns:
         Tuple of (tokenizer, model, hf_config).
     """
-    model_dir = snapshot_download(repo_id, revision=revision, repo_type="model")
+    model_dir = snapshot_download(model_id, revision=revision, repo_type="model")
     # load config
     config_file = os.path.join(model_dir, "config.json")
     with open(config_file) as fp:
@@ -160,7 +169,18 @@ def from_pretrained(repo_id: str, revision: str | None = None, **model_args):
     # load model
     model_type = hf_config["model_type"]
     cfg = get_load_config(model_type)
+    model_args = tweak_model_args(model_args)
     args = cfg.model_args_class.from_file(config_file, **model_args)
     model = cfg.model_class(args)
     update_model_from_safe(model, cfg.rules, model_dir)
+    # load chat template
+    # note: in huggingface/transformers, chat template is loaded into tokenizer,
+    # but we use huggingface/tokenizers, which are slightly different.
+    # thus, we load the template seprately and put to hf_config
+    tokenizer_config_file = os.path.join(model_dir, "tokenizer_config.json")
+    with open(tokenizer_config_file) as fp:
+        tok_config = json.load(fp)
+        hf_config["chat_template"] = tok_config.get(
+            "chat_template", cfg.chat_template
+        )
     return tokenizer, model, hf_config
