@@ -3,8 +3,7 @@ from functools import partial
 import jax
 import jax.lax as lax
 import jax.numpy as jnp
-from flax import nnx
-from flax import struct
+from flax import nnx, struct
 
 
 def debug_while_loop(cond_fun, body_fun, init_val):
@@ -14,7 +13,9 @@ def debug_while_loop(cond_fun, body_fun, init_val):
     return val
 
 
-def sample_token(rng, logits, temperature: float = 1.0, top_p: float = 1.0, top_k: int = 50):
+def sample_token(
+    rng, logits, temperature: float = 1.0, top_p: float = 1.0, top_k: int = 50
+):
     """
     Sample next token using provided temperature, top_p and top_k.
     """
@@ -36,7 +37,6 @@ def sample_token(rng, logits, temperature: float = 1.0, top_p: float = 1.0, top_
     ## TOP K
     top_k_mask = jnp.full_like(logits, False, dtype=bool)
     top_k_mask = top_k_mask.at[:, :top_k].set(True)
-
 
     # APPLY TOP P AND TOP K
     # combine masks (intersection - allow only logits that conform to both filters)
@@ -65,7 +65,6 @@ class SampleState:
     prng_key: jnp.ndarray
 
 
-
 @partial(nnx.jit, static_argnums=(2, 3, 4, 5, 6, 7))
 def sample(
     model,
@@ -76,15 +75,16 @@ def sample(
     temperature: float = 1.0,
     top_p: float = 1.0,
     top_k: int = 50,
-    prng_key: jax.Array = jax.random.key(0)
+    prng_key: jax.Array = jax.random.key(0),
 ):
     def sample_cond_fn(state: SampleState):
         """state termination condition fn."""
         has_reached_max_length = state.cur_len == max_length
         all_sequence_finished = jnp.all(state.is_sent_finished)
-        finish_generation = jnp.logical_or(has_reached_max_length, all_sequence_finished)
+        finish_generation = jnp.logical_or(
+            has_reached_max_length, all_sequence_finished
+        )
         return ~finish_generation
-
 
     def sample_body_fn(state: SampleState):
         """state update fn."""
@@ -99,7 +99,7 @@ def sample(
             next_token_logits,
             temperature=temperature,
             top_p=top_p,
-            top_k=top_k
+            top_k=top_k,
         )
 
         next_token = (
@@ -146,7 +146,7 @@ def sample(
         start_pos=0,
         model_state=model_state,
         static=static,
-        prng_key=prng_key
+        prng_key=prng_key,
     )
 
     # The very first prompt often has sequence length > 1, so run outside of `lax.while_loop` to comply with TPU
@@ -155,7 +155,6 @@ def sample(
     state = lax.while_loop(sample_cond_fn, sample_body_fn, state)
     # state = debug_while_loop(greedy_search_cond_fn, greedy_search_body_fn, state)
     return state.sequences
-
 
 
 ################################################################

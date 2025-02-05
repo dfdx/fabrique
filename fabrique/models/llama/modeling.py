@@ -335,12 +335,14 @@ class Transformer(nnx.Module):
         self.norm = RMSNorm(args.dim, eps=args.norm_eps)
         self.output = nnx.Linear(args.dim, args.vocab_size, use_bias=False, rngs=rngs)
 
-        self.sincos = Static(create_sinusoidal_positions(
-            args.max_seq_len, args.dim // args.n_heads
-        ))
-        self.causal_mask = Static(nnx.make_causal_mask(
-            jnp.ones((1, args.max_seq_len), dtype="bool"), dtype="bool"
-        ))
+        self.sincos = Static(
+            create_sinusoidal_positions(args.max_seq_len, args.dim // args.n_heads)
+        )
+        self.causal_mask = Static(
+            nnx.make_causal_mask(
+                jnp.ones((1, args.max_seq_len), dtype="bool"), dtype="bool"
+            )
+        )
 
     def __call__(self, tokens: jax.Array, start_pos: int):
         """

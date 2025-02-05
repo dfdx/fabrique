@@ -22,15 +22,15 @@ class LLM:
         return LLM(tokenizer, model, hf_config)
 
     def generate(
-            self,
-            prompt: str,
-            new_only: bool = True,
-            max_length: int = 4096,
-            temperature: float = 1.0,
-            top_p: float = 1.0,
-            top_k: int = 50,
-            prng_key: jax.Array | None = None
-        ):
+        self,
+        prompt: str,
+        new_only: bool = True,
+        max_length: int = 4096,
+        temperature: float = 1.0,
+        top_p: float = 1.0,
+        top_k: int = 50,
+        prng_key: jax.Array | None = None,
+    ):
         prompt_tokens = self.tokenizer.encode(prompt).ids
         prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
         sequences = sample(
