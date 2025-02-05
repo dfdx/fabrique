@@ -52,8 +52,8 @@ def test_set_nested_attr():
     )
 
     obj = Foo(Bar(Baz(0)))
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError):
         set_nested_attr(obj, ["a", "b", "d"], 42)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError):
         set_nested_attr(obj, ["a", "d", "c"], 42)

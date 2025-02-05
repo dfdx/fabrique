@@ -48,3 +48,7 @@ find = {}
 [[tool.mypy.overrides]]
 module = "tokenizers.*,huggingface_hub.*,transformers.*"
 ignore_missing_imports = true
+
+
+[tool.ruff]
+extend-exclude = ["tests/manual"]

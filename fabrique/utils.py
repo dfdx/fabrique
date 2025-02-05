@@ -150,7 +150,7 @@ def set_nested_attr(nested_obj, fields: List[str], val):
     last_field = fields[-1]
     ensure_field(obj, last_field)
     old_val = getattr(obj, last_field)
-    if type(old_val) != type(val):
+    if type(old_val) is not type(val):
         logger.warning(
             f"Field {'.'.join(fields)} has type {type(old_val)}, "
             + f"but setting it to value of type {type(val)}"
