@@ -7,7 +7,26 @@ Fabrique uses model snapshots from Huggingface Hub and provides familiar high-le
 
 ## Installation
 
-TODO
+You can install the latest released version of fabrique from PYPI:
+
+```
+pip install fabrique
+```
+
+Alternatively, you can mount the development version of fabrique directly to your project and use existing code as reference for your own models:
+
+```
+cd /path/to/your/project
+
+# clone the repository
+git clone https://github.com/dfdx/fabrique
+
+# or even add it as a submodule
+# git submodule add git@github.com:dfdx/fabrique.git
+
+# set up PYTHONPATH to include fabrique as a package
+export PYTHONPATH=.:fabrique
+```
 
 
 ## Usage
