@@ -88,11 +88,13 @@ def sample(
 
     def sample_body_fn(state: SampleState):
         """state update fn."""
+        bsz = state.sequences.shape[0]
         model_state = state.model_state
         static = state.static
         model = nnx.merge(static, model_state)
         logits = model(state.running_token, state.start_pos)
-        next_token_logits = logits[:, -1]
+        next_token_logits = logits[:bsz, -1]  # note: model can return > bsz sequences
+        # so we limit logits
 
         next_token = sample_token(
             state.prng_key,
@@ -116,7 +118,7 @@ def sample(
         next_prng_key = jax.random.split(state.prng_key)[0]
 
         _, next_model_state = nnx.split(model, ...)
-        return state.replace(
+        return state.replace(  # type: ignore[attr-defined]
             cur_len=state.cur_len + 1,
             sequences=next_sequences,
             running_token=next_token,

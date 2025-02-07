@@ -1,8 +1,8 @@
+import importlib
 import json
 import os
 import pkgutil
 import re
-import importlib
 from dataclasses import dataclass
 from typing import Callable, Dict, List
 
@@ -180,7 +180,5 @@ def from_pretrained(model_id: str, revision: str | None = None, **model_args):
     tokenizer_config_file = os.path.join(model_dir, "tokenizer_config.json")
     with open(tokenizer_config_file) as fp:
         tok_config = json.load(fp)
-        hf_config["chat_template"] = tok_config.get(
-            "chat_template", cfg.chat_template
-        )
+        hf_config["chat_template"] = tok_config.get("chat_template", cfg.chat_template)
     return tokenizer, model, hf_config
