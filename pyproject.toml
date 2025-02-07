@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fabrique"
-version = "0.1.0"
+version = "0.1.1"
 description = "Research-friendly implementation of LLMs in JAX"
 authors = [
   { name="Andrei Zhabinski", email="andrei.zhabinski@gmail.com" },

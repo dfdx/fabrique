@@ -1,5 +1,5 @@
 from fabrique.loading import LoadConfig
-from fabrique.models.llama.load_rules import RULES, CHAT_TEMPLATE
+from fabrique.models.llama.load_rules import CHAT_TEMPLATE, RULES
 from fabrique.models.llama.modeling import ModelArgs, Transformer
 
 LOAD_CONFIG = LoadConfig(
