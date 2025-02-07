@@ -70,7 +70,7 @@ def sample(
     model,
     prompt_tokens: jax.Array,
     pad_token_id: int,
-    eos_token_id: int,
+    eos_token_id: int | tuple[int],
     max_length: int = 512,
     temperature: float = 1.0,
     top_p: float = 1.0,
@@ -93,8 +93,8 @@ def sample(
         static = state.static
         model = nnx.merge(static, model_state)
         logits = model(state.running_token, state.start_pos)
-        next_token_logits = logits[:bsz, -1]  # note: model can return > bsz sequences
-        # so we limit logits
+        # note: model can return > bsz sequences so we limit logits
+        next_token_logits = logits[:bsz, -1]
 
         next_token = sample_token(
             state.prng_key,
@@ -107,7 +107,7 @@ def sample(
         next_token = (
             next_token * ~state.is_sent_finished + pad_token_id * state.is_sent_finished
         )
-        next_is_sent_finished = state.is_sent_finished | (next_token == eos_token_id)
+        next_is_sent_finished = state.is_sent_finished | jnp.isin(next_token, eos_token_ids)
         next_token = next_token[:, None]
 
         next_sequences = lax.dynamic_update_slice(
@@ -129,6 +129,7 @@ def sample(
         )
 
     bsz, cur_len = prompt_tokens.shape
+    eos_token_ids = jnp.array(eos_token_id)
 
     # per batch-item holding current token in loop
     sequences = jnp.full((bsz, max_length), pad_token_id, dtype=jnp.int32)
@@ -166,7 +167,7 @@ def sample(
 #     from fabrique.models.llm import LLM
 
 #     llm = LLM.from_pretrained(
-#         "meta-llama/Meta-Llama-3-8B-Instruct",
+#         "meta-llama/Meta-Llama-3.1-8B-Instruct",
 #         max_batch_size=1,
 #         max_seq_len=4096,
 #         dtype=jnp.bfloat16,
@@ -175,32 +176,53 @@ def sample(
 #     model, tokenizer, hf_config = llm.model, llm.tokenizer, llm.hf_config
 
 #     # prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
-#     prompt = """<|user|>\nWrite a long poem about Disney Land<|end|>\n<|assistant|>"""
+#     # prompt = """<|begin_of_text|><|start_header_id|>user<|end_header_id|>
+#     #     What is the capital of France?<|eot_id|>
+#     #     <|start_header_id|>assistant<|end_header_id|>"""
+#     prompt = '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 26 Jul 2024\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nWhat time is it?<|eot_id|>'
 #     prompt_tokens = tokenizer.encode(prompt).ids
 #     prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
 
 #     jax.config.update("jax_explain_cache_misses", True)
 
 #     rngs = nnx.Rngs(0)
+#     prng_key = rngs()
 
 #     sequences = sample(
 #         model,
 #         prompt_tokens,
-#         pad_token_id=hf_config["eos_token_id"],
-#         eos_token_id=hf_config["eos_token_id"],
-#         max_length=512,
-#         temperature=2,
+#         pad_token_id=llm.special_tokens.eos_id,
+#         eos_token_id=llm.special_tokens.eos_ids,
+#         max_length=128,
+#         temperature=1,
 #         # top_p=0.5,
 #         # top_k=3,
-#         prng_key=rngs()
+#         prng_key=prng_key
 #     )
 #     out = tokenizer.decode(sequences[0])
 #     print(out)
 
-#     pad_token_id = hf_config.get("pad_token_id") or hf_config["eos_token_id"]
-#     eos_token_id = hf_config["eos_token_id"]
+
+#     self = llm
+#     sequences = sample(
+#         model,
+#         prompt_tokens,
+#         pad_token_id=self.special_tokens.eos_id,
+#         eos_token_id=self.special_tokens.eos_ids,
+#         max_length=max_length,
+#         temperature=temperature,
+#         top_p=top_p,
+#         top_k=top_k,
+#         prng_key=prng_key,
+#     )
+#     out = tokenizer.decode(sequences[0])
+#     print(out)
+
+#     pad_token_id = hf_config.get("pad_token_id") or hf_config["eos_token_id"][0]
+#     eos_token_id = tuple(hf_config["eos_token_id"])
 #     max_length = 512
 #     temperature: float = 1.0
 #     top_p: float = 1.0
 #     top_k: int = 50
 #     rngs: nnx.Rngs = nnx.Rngs(0)
+#     prng_key = rngs()
