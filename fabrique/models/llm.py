@@ -20,12 +20,23 @@ class ChatMessage:
     content: str
 
     @staticmethod
+    def from_response(response: str):
+        role_content = response.split("\n\n", 1)
+        if len(role_content) != 2:
+            raise ValueError(
+                "Couldn't parse LLM response into a chat message. "
+                + f"Response text:\n\n{response}"
+            )
+        else:
+            role, content = role_content
+            return ChatMessage(role=role, content=content)
+
+    @staticmethod
     def from_dict(d: Dict):
         return ChatMessage(**d)
 
     def dict(self):
         return {"role": self.role, "content": self.content}
-
 
 
 class SpecialTokenMap:
@@ -58,7 +69,7 @@ class LLM:
             self.chat_template = Environment().from_string(tmpl)
 
     def __repr__(self):
-        return f"LLM({self.name})"
+        return f'LLM("{self.name}")'
 
     @staticmethod
     def from_pretrained(repo_id: str, revision: str | None = None, **model_args):
@@ -143,9 +154,7 @@ class LLM:
     def generate(self, chats: List[List[ChatMessage]], **kwargs):
         prompts = [self.apply_chat_template(messages) for messages in chats]
         responses = self.generate(prompts, **kwargs)
-        # assert all(response.startswith("assistant") for response in responses)
-        roles_contents = [response.split("\n\n", 1) for response in responses]
-        return [ChatMessage(role=r, content=c) for r, c in roles_contents]
+        return [ChatMessage.from_response(response) for response in responses]
 
     @multimethod  # type: ignore[no-redef]
     def generate(self, messages: List[ChatMessage], **kwargs):

@@ -107,7 +107,9 @@ def sample(
         next_token = (
             next_token * ~state.is_sent_finished + pad_token_id * state.is_sent_finished
         )
-        next_is_sent_finished = state.is_sent_finished | jnp.isin(next_token, eos_token_ids)
+        next_is_sent_finished = state.is_sent_finished | jnp.isin(
+            next_token, eos_token_ids
+        )
         next_token = next_token[:, None]
 
         next_sequences = lax.dynamic_update_slice(

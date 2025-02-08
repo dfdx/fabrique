@@ -101,6 +101,7 @@ RUN echo 'export PATH=/usr/local/cuda/bin:${PATH}' >> ${HOME}/.bashrc
 FROM build-base AS build-dev
 
 # RUN pip install pytest ipython mypy black isort
+# RUN pip install tensorflow tensorboard-plugin-profile
 
 FROM build-dev AS build-test
 

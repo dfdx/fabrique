@@ -49,5 +49,9 @@ find = {}
 [tool.mypy]
 
 [[tool.mypy.overrides]]
-module = "tokenizers.*,huggingface_hub.*,transformers.*"
+module = "tokenizers.*,huggingface_hub.*,transformers.*,datasets.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "optax.*"
 ignore_missing_imports = true
