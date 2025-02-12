@@ -1,5 +1,4 @@
 import json
-import math
 from dataclasses import dataclass
 from functools import partial
 from typing import Optional
@@ -15,7 +14,6 @@ from fabrique.models.common.embeddings import (
     create_sinusoidal_positions,
 )
 from fabrique.models.common.norm import RMSNorm
-from fabrique.models.common.utils import repeat_kv
 from fabrique.utils import check_and_update_fields
 
 

@@ -5,7 +5,7 @@ from fabrique import LLM
 
 
 def load_and_check(model_id: str, revision: str, prompt: str, expected: str):
-    kwargs = {"max_seq_len": 32, "max_batch_size": 1}  # limit cache size
+    kwargs = {"max_seq_len": 32, "max_batch_size": 1, "dtype": jnp.bfloat16}  # limit cache size
     llm = LLM.from_pretrained(model_id, revision=revision, **kwargs)
     key = jax.random.key(818)
     result = llm.generate(prompt, new_only=False, max_length=32, prng_key=key)
@@ -25,7 +25,15 @@ def test_phi():
     model_id = "microsoft/Phi-3-mini-4k-instruct"
     revision = "c1358f8"
     prompt = "Once upon a time"
-    expected = "Once upon a time in the magical land of Academia Pride, there lived a knowledgeable owl named Old Will who loved learning more than anything else."
+    expected = "Once upon a time in the magical land of Wordspell, every word had its unique spell, and words were connected with pathways of letters that dan"
+    load_and_check(model_id, revision, prompt, expected)
+
+
+def test_qwen2():
+    model_id = "Qwen/Qwen2-7B-Instruct"
+    revision = "f2826a00ceef68f0f2b946d945ecc0477ce4450c"
+    prompt = "Once upon a time"
+    expected = "Once upon a time, I was a young man studying at a well-known university in Hong Kong. As a student there, I became quite acquainted with the work"
     load_and_check(model_id, revision, prompt, expected)
 
 
