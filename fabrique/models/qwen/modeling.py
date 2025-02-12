@@ -23,6 +23,7 @@ from fabrique.utils import check_and_update_fields
 # TODO:
 # 1. map bias for wq, wk, wv in loading
 # 2. add sliding window support
+# 3. check out in attention: 1) generaion with cache, 2) w/o cache, 3) training
 
 
 @dataclass
@@ -65,6 +66,7 @@ class ModelArgs:
         return check_and_update_fields(args, **kwargs)
 
 
+
 class Attention(llama.Attention):
     """
     Multi-head attention module.
@@ -85,7 +87,7 @@ class Attention(llama.Attention):
     """
 
     def __init__(self, args: ModelArgs, rngs: nnx.Rngs):
-        super.__init__(args, rngs)
+        super().__init__(args, rngs)
 
         dense = partial(
             nnx.Linear,
@@ -153,29 +155,29 @@ class Attention(llama.Attention):
                 self.cache_k, self.cache_v, xk, xv, xq, mask, start_pos
             )
 
-        # # repeat k/v heads if n_kv_heads < n_heads
-        # xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
-        # xv = repeat_kv(xv, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+        # repeat k/v heads if n_kv_heads < n_heads
+        xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+        xv = repeat_kv(xv, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
 
-        # xq = jnp.moveaxis(xq, 1, 2)  # (bs, n_local_heads, seqlen, head_dim)
-        # xk = jnp.moveaxis(xk, 1, 2)
-        # xv = jnp.moveaxis(xv, 1, 2)
+        xq = jnp.moveaxis(xq, 1, 2)  # (bs, n_local_heads, seqlen, head_dim)
+        xk = jnp.moveaxis(xk, 1, 2)
+        xv = jnp.moveaxis(xv, 1, 2)
 
-        # scores = jnp.matmul(xq, jnp.moveaxis(xk, 2, 3)) / math.sqrt(self.head_dim)
+        scores = jnp.matmul(xq, jnp.moveaxis(xk, 2, 3)) / math.sqrt(self.head_dim)
 
-        # if mask is not None:  # should we even allow mask to be None?
-        #     # so far we used mask with 1s to mean "attend" and 0s to mean "ignore"
-        #     # to apply it to scores, we convert it to 0s and -inf accordingly
-        #     imask = jnp.where(mask == 0, -jnp.inf, 0)
-        #     scores = scores + imask  # (bs, n_heads, q_len, kv_len)
-        # scores = nnx.softmax(scores.astype("float32"), axis=-1).astype(xq.dtype)
+        if mask is not None:  # should we even allow mask to be None?
+            # so far we used mask with 1s to mean "attend" and 0s to mean "ignore"
+            # to apply it to scores, we convert it to 0s and -inf accordingly
+            imask = jnp.where(mask == 0, -jnp.inf, 0)
+            scores = scores + imask  # (bs, n_heads, q_len, kv_len)
+        scores = nnx.softmax(scores.astype("float32"), axis=-1).astype(xq.dtype)
 
-        # # output = jnp.matmul(scores, xv)  # (bs, n_heads, q_len, head_dim)??
-        # # output = jnp.moveaxis(output, 1, 2).ravel().reshape(bsz, seq_len, -1)
-        # output = jnp.einsum(
-        #     "...hqk,...hkd->...qhd", scores, xv
-        # )  # (bs, q_len, n_heads, head_dim)
-        # output = output.reshape(output.shape[:2] + (self.args.dim,))
+        # output = jnp.matmul(scores, xv)  # (bs, n_heads, q_len, head_dim)??
+        # output = jnp.moveaxis(output, 1, 2).ravel().reshape(bsz, seq_len, -1)
+        output = jnp.einsum(
+            "...hqk,...hkd->...qhd", scores, xv
+        )  # (bs, q_len, n_heads, head_dim)
+        output = output.reshape(output.shape[:2] + (self.args.dim,))
 
         # note: here we ignore sliding window and dropout as they would require
         # significant modifications, but are actually not used in Qwen2
@@ -185,6 +187,19 @@ class Attention(llama.Attention):
         # TODO: check that dot_product_attention() gives the same result as the commented code
 
         return self.wo(output)
+
+
+def main():
+    args = ModelArgs(dim=12, n_heads=2, max_seq_len=32)
+    rngs = nnx.Rngs(0)
+    self = Attention(args, rngs)
+    sincos = create_sinusoidal_positions(args.max_seq_len, args.dim // args.n_heads)
+    start_pos = 0
+    full_causal_mask = nnx.make_causal_mask(
+        jnp.ones((1, args.max_seq_len), dtype="bool"), dtype="bool"
+    )
+    x = jax.random.normal(rngs(), (2, 8, 12))
+
 
 
 class FeedForward(nnx.Module):

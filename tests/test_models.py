@@ -16,7 +16,7 @@ def load_and_check(model_id: str, revision: str, prompt: str, expected: str):
 def test_llama():
     model_id = "meta-llama/Meta-Llama-3-8B"
     prompt = "Once upon a time"
-    revision = None
+    revision = "8cde5ca8380496c9a6cc7ef3a8b46a0372a1d920"
     expected = "Once upon a time the British government established a board charged with running the country, the British economy and the welfare of her citizens.\nThis board was duly composed"
     load_and_check(model_id, revision, prompt, expected)
 
@@ -25,7 +25,7 @@ def test_phi():
     model_id = "microsoft/Phi-3-mini-4k-instruct"
     revision = "c1358f8"
     prompt = "Once upon a time"
-    expected = "Once upon a time in the magical land of Wordspell, every word had its unique spell, and words were connected with pathways of letters that dan"
+    expected = "Once upon a time in the magical land of Academia Pride, there lived a knowledgeable owl named Old Will who loved learning more than anything else."
     load_and_check(model_id, revision, prompt, expected)
 
 
