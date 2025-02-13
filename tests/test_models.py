@@ -5,7 +5,11 @@ from fabrique import LLM
 
 
 def load_and_check(model_id: str, revision: str, prompt: str, expected: str):
-    kwargs = {"max_seq_len": 32, "max_batch_size": 1, "dtype": jnp.bfloat16}  # limit cache size
+    kwargs = {
+        "max_seq_len": 32,
+        "max_batch_size": 1,
+        "dtype": jnp.bfloat16,
+    }  # limit cache size
     llm = LLM.from_pretrained(model_id, revision=revision, **kwargs)
     key = jax.random.key(818)
     result = llm.generate(prompt, new_only=False, max_length=32, prng_key=key)
