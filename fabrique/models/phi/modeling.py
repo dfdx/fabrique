@@ -1,5 +1,4 @@
 import json
-import math
 from dataclasses import dataclass
 from functools import partial
 from typing import Optional
@@ -15,7 +14,6 @@ from fabrique.models.common.embeddings import (
     create_sinusoidal_positions,
 )
 from fabrique.models.common.norm import RMSNorm
-from fabrique.models.common.utils import repeat_kv
 from fabrique.utils import check_and_update_fields
 
 
@@ -140,11 +138,9 @@ class Attention(nnx.Module):
 
         xq, xk = apply_rotary_pos_emb(xq, xk, sincos, start_pos)
 
-        causal_mask = jax.lax.dynamic_slice(
+        mask = jax.lax.dynamic_slice(
             full_causal_mask, (0, 0, start_pos, 0), (1, 1, q_len, max_kv_len)
         )
-
-        mask = causal_mask
         if self.args.use_cache:
             # shape of kv after concatenating to the cache is
             # [bs, max_seq_len, n_heads, head_dim]
@@ -152,28 +148,7 @@ class Attention(nnx.Module):
                 self.cache_k, self.cache_v, xk, xv, xq, mask, start_pos
             )
 
-        # repeat k/v heads if n_kv_heads < n_heads
-        xk = repeat_kv(xk, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
-        xv = repeat_kv(xv, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
-
-        xq = jnp.moveaxis(xq, 1, 2)  # (bs, n_local_heads, seqlen, head_dim)
-        xk = jnp.moveaxis(xk, 1, 2)
-        xv = jnp.moveaxis(xv, 1, 2)
-
-        scores = jnp.matmul(xq, jnp.moveaxis(xk, 2, 3)) / math.sqrt(self.head_dim)
-
-        if mask is not None:  # should we even allow mask to be None?
-            # so far we used mask with 1s to mean "attend" and 0s to mean "ignore"
-            # to apply it to scores, we convert it to 0s and -inf accordingly
-            imask = jnp.where(mask == 0, -jnp.inf, 0)
-            scores = scores + imask  # (bs, n_heads, q_len, kv_len)
-        scores = nnx.softmax(scores.astype("float32"), axis=-1).astype(xq.dtype)
-
-        # output = jnp.matmul(scores, xv)  # (bs, n_heads, q_len, head_dim)??
-        # output = jnp.moveaxis(output, 1, 2).ravel().reshape(bsz, seq_len, -1)
-        output = jnp.einsum(
-            "...hqk,...hkd->...qhd", scores, xv
-        )  # (bs, q_len, n_heads, head_dim)
+        output = jax.nn.dot_product_attention(xq, xk, xv, mask=mask)
         output = output.reshape(output.shape[:2] + (self.args.dim,))
 
         return self.wo(output)
