@@ -64,22 +64,17 @@ class Attention(nnx.Module):
 
     Args:
         args (ModelArgs): Model configuration parameters.
-        rngs (nnx.Rngs): Ranom number generator.
-
-    Attributes:
-        n_kv_heads (int): Number of key and value heads.
-        n_rep (int): Number of repetitions for local heads.
-        head_dim (int): Dimension size of each attention head.
-        wq (Linear): Linear transformation for queries.
-        wk (Linear): Linear transformation for keys.
-        wv (Linear): Linear transformation for values.
-        wo (Linear): Linear transformation for output.
-        cache_k (jax.Array): Cached keys for attention.
-        cache_v (jax.Array): Cached values for attention.
+        sincos (jax.Array): Precomputed frequency array.
+        full_causal_mask (jax.Array): Causal mask of size (1, max_seq_len, max_seq_len).
+        rngs (nnx.Rngs): Random number generators.
     """
 
-    def __init__(self, args: ModelArgs, rngs: nnx.Rngs):
+    def __init__(
+        self, args: ModelArgs, sincos: Static, full_causal_mask: Static, rngs: nnx.Rngs
+    ):
         self.args = args
+        self.sincos = sincos
+        self.full_causal_mask = full_causal_mask
         self.n_heads = args.n_heads
         self.n_kv_heads = self.n_heads if args.n_kv_heads is None else args.n_kv_heads
 
@@ -112,8 +107,6 @@ class Attention(nnx.Module):
         self,
         x: jax.Array,
         start_pos: int,
-        sincos: jax.Array,
-        full_causal_mask: jax.Array,
         padding_mask: jax.Array | None = None,
     ):
         """
@@ -123,8 +116,6 @@ class Attention(nnx.Module):
             x (jax.Array): Input array.
             start_pos (int): Starting position for computations. Items before this
                 position are taken from cache.
-            sincos (jax.Array): Precomputed frequency array.
-            full_causal_mask (jax.Array): Causal mask of size (1, max_seq_len, max_seq_len).
             padding_mask (jax.Array): Padding mask of size (bsz, kv_len), dtype = bool.
 
         Returns:
@@ -140,12 +131,12 @@ class Attention(nnx.Module):
         xk = xk.reshape(bsz, seq_len, self.n_kv_heads, self.head_dim)
         xv = xv.reshape(bsz, seq_len, self.n_kv_heads, self.head_dim)
 
-        xq, xk = apply_rotary_pos_emb(xq, xk, sincos, start_pos)
+        xq, xk = apply_rotary_pos_emb(xq, xk, self.sincos.value, start_pos)
 
         # apply masks. note: masks have shape (bsz, q_len, kv_len)
         # kv_len depends on the use of cache - see its definition above
         mask = jax.lax.dynamic_slice(
-            full_causal_mask, (0, start_pos, 0), (1, q_len, kv_len)
+            self.full_causal_mask.value, (0, start_pos, 0), (1, q_len, kv_len)
         )
         mask = jnp.broadcast_to(mask, (bsz, *mask.shape[1:]))
         if padding_mask is not None:
@@ -221,7 +212,9 @@ class FeedForward(nnx.Module):
 
 class TransformerBlock(nnx.Module):
 
-    def __init__(self, args: ModelArgs, rngs: nnx.Rngs):
+    def __init__(
+        self, args: ModelArgs, sincos: Static, full_causal_mask: Static, rngs: nnx.Rngs
+    ):
         """
         Initialize a TransformerBlock.
 
@@ -233,7 +226,7 @@ class TransformerBlock(nnx.Module):
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
-        self.attention = Attention(args, rngs=rngs)
+        self.attention = Attention(args, sincos, full_causal_mask, rngs=rngs)
         self.feed_forward = FeedForward(
             dim=args.dim,
             hidden_dim=args.ffn_hidden_size,
@@ -254,8 +247,6 @@ class TransformerBlock(nnx.Module):
         self,
         x: jax.Array,
         start_pos: int,
-        sincos: jax.Array,
-        full_causal_mask: jax.Array,
         padding_mask: jax.Array | None = None,
     ):
         """
@@ -264,8 +255,6 @@ class TransformerBlock(nnx.Module):
         Args:
             x (jax.Array): Input array.
             start_pos (int): Starting position for attention caching.
-            sincos (jax.Array): Precomputed freqs_ciscosine and sine frequencies.
-            full_causal_mask (jax.Array, optional): Causal mask of size (max_seq_len x max_seq_len).
             padding_mask (jax.Array): Padding mask of size (bsz, kv_len), dtype = bool.
         Returns:
             jax.Array: Output tensor after applying attention and feedforward layers.
@@ -274,8 +263,6 @@ class TransformerBlock(nnx.Module):
         h = x + self.attention(
             self.attention_norm(x),
             start_pos,
-            sincos,
-            full_causal_mask,
             padding_mask=padding_mask,
         )
         out = h + self.feed_forward(self.ffn_norm(h))
@@ -314,17 +301,20 @@ class Transformer(nnx.Module):
             rngs=rngs,
         )
 
-        self.layers = [TransformerBlock(args, rngs=rngs) for _ in range(args.n_layers)]
+        sincos = Static(
+            create_sinusoidal_positions(args.max_seq_len, args.dim // args.n_heads)
+        )
+        full_causal_mask = Static(
+            nnx.make_causal_mask(jnp.ones(args.max_seq_len, dtype="bool"), dtype="bool")
+        )
+
+        self.layers = [
+            TransformerBlock(args, sincos, full_causal_mask, rngs=rngs)
+            for _ in range(args.n_layers)
+        ]
 
         self.norm = RMSNorm(args.dim, eps=args.norm_eps)
         self.output = nnx.Linear(args.dim, args.vocab_size, use_bias=False, rngs=rngs)
-
-        self.sincos = Static(
-            create_sinusoidal_positions(args.max_seq_len, args.dim // args.n_heads)
-        )
-        self.causal_mask = Static(
-            nnx.make_causal_mask(jnp.ones(args.max_seq_len, dtype="bool"), dtype="bool")
-        )
 
     def __call__(
         self, tokens: jax.Array, start_pos: int, padding_mask: jax.Array | None = None
@@ -345,8 +335,6 @@ class Transformer(nnx.Module):
             h = layer(
                 h,
                 start_pos,
-                self.sincos.value,
-                self.causal_mask.value,
                 padding_mask=padding_mask,
             )
         h = self.norm(h)

@@ -6,9 +6,8 @@ from typing import Optional
 import jax
 import jax.numpy as jnp
 from flax import nnx
+from flax.nnx.graph import Static
 
-from fabrique.models.common.cache import concatenate_to_cache
-from fabrique.models.common.embeddings import apply_rotary_pos_emb
 from fabrique.models.llama import modeling as llama
 from fabrique.utils import check_and_update_fields
 
@@ -75,8 +74,12 @@ class Attention(llama.Attention):
     Multi-head attention module.
     """
 
-    def __init__(self, args: ModelArgs, rngs: nnx.Rngs):
-        super().__init__(llama.ModelArgs(**asdict(args)), rngs)
+    def __init__(
+        self, args: ModelArgs, sincos: Static, full_causal_mask: Static, rngs: nnx.Rngs
+    ):
+        super().__init__(
+            llama.ModelArgs(**asdict(args)), sincos, full_causal_mask, rngs
+        )
 
         dense = partial(
             nnx.Linear,
@@ -94,16 +97,22 @@ class Attention(llama.Attention):
 
 class TransformerBlock(llama.TransformerBlock):
 
-    def __init__(self, args: ModelArgs, rngs: nnx.Rngs):
-        super().__init__(llama.ModelArgs(**asdict(args)), rngs)
+    def __init__(
+        self, args: ModelArgs, sincos: Static, full_causal_mask: Static, rngs: nnx.Rngs
+    ):
+        super().__init__(
+            llama.ModelArgs(**asdict(args)), sincos, full_causal_mask, rngs
+        )
         # replace Llama attention with the implementation in this file
-        self.attention = Attention(args, rngs=rngs)
+        self.attention = Attention(args, sincos, full_causal_mask, rngs=rngs)
 
 
 class Transformer(llama.Transformer):
 
     def __init__(self, args: ModelArgs, rngs: nnx.Rngs = nnx.Rngs(params=0)):
         super().__init__(llama.ModelArgs(**asdict(args)), rngs)
+        attn_0 = self.layers[0].attention
+        sincos, full_causal_mask = attn_0.sincos, attn_0.full_causal_mask
         for i in range(len(self.layers)):
             # replace Llama blocks by the blocks in this file, one by one
-            self.layers[i] = TransformerBlock(args, rngs)
+            self.layers[i] = TransformerBlock(args, sincos, full_causal_mask, rngs)
