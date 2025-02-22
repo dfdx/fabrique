@@ -4,6 +4,27 @@ import jax.numpy as jnp
 from fabrique import LLM
 
 
+def check_padding(model, tokenizer, prompt):
+    tokens = jnp.array(tokenizer.encode(prompt).ids).reshape(1, -1)
+    # mask first tokens to avoid correlation with the causal mask
+    pad_positions = (slice(None), slice(0, 3))
+    not_pad_positions = (slice(None), slice(3, None))
+    padding_mask = jnp.ones(tokens.shape, dtype=bool).at[pad_positions].set(False)
+    tokens_modified = jnp.where(padding_mask, tokens, tokens + 1)
+
+    # w/o padding mask, modified tokens should lead to modified out
+    out = model(tokens, 0)
+    out_mod = model(tokens_modified, 0)
+    assert (out != out_mod).sum() / out.size > 0.99  # almost all not equal
+
+    # w/ padding mask, changes in the padded part should have no effect
+    out = model(tokens, 0, padding_mask=padding_mask)
+    out_mod = model(tokens_modified, 0, padding_mask=padding_mask)
+
+    assert (out[not_pad_positions] == out_mod[not_pad_positions]).all()
+    assert (out[pad_positions] != out_mod[pad_positions]).sum() / out[pad_positions].size > 0.99
+
+
 def load_and_check(model_id: str, revision: str, prompt: str, expected: str):
     kwargs = {
         "max_seq_len": 32,
@@ -15,6 +36,9 @@ def load_and_check(model_id: str, revision: str, prompt: str, expected: str):
     result = llm.generate(prompt, new_only=False, max_length=32, prng_key=key)
     assert isinstance(result, str)
     assert result == expected
+
+    model, tokenizer = llm.model, llm.tokenizer
+    check_padding(model, tokenizer, prompt)
 
 
 def test_llama():

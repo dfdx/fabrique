@@ -7,10 +7,11 @@ from fabrique import LLM, ChatMessage
 def test_inference():
     model_id = "meta-llama/Meta-Llama-3-8B-Instruct"
     kwargs = {
+        "dtype": jnp.bfloat16,
+        # limit cache size
         "max_seq_len": 32,
         "max_batch_size": 2,
-        "dtype": jnp.bfloat16,
-    }  # limit cache size
+    }
     llm = LLM.from_pretrained(model_id, **kwargs)
     key = jax.random.key(94)
 
