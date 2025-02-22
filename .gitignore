@@ -153,3 +153,6 @@ app.logs
 # foreign files
 __MACOSX/
 class_by_href_text/
+
+# special files
+_main.py

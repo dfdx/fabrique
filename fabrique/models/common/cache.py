@@ -41,7 +41,7 @@ def concatenate_to_cache(
     # update causal mask to also black out tokens beyond current position
     pad_mask = jnp.broadcast_to(
         jnp.arange(max_length) < start_pos + q_len,
-        tuple(bs) + (1, q_len, max_length),
+        tuple(bs) + (q_len, max_length),
     )
     attn_mask = combine_masks(pad_mask, attn_mask).astype(bool)  # type: ignore
 
