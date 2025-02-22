@@ -22,7 +22,9 @@ def check_padding(model, tokenizer, prompt):
     out_mod = model(tokens_modified, 0, padding_mask=padding_mask)
 
     assert (out[not_pad_positions] == out_mod[not_pad_positions]).all()
-    assert (out[pad_positions] != out_mod[pad_positions]).sum() / out[pad_positions].size > 0.99
+    assert (out[pad_positions] != out_mod[pad_positions]).sum() / out[
+        pad_positions
+    ].size > 0.99
 
 
 def load_and_check(model_id: str, revision: str, prompt: str, expected: str):

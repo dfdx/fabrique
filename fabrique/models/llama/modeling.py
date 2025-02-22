@@ -84,7 +84,9 @@ class Attention(nnx.Module):
         self.n_kv_heads = self.n_heads if args.n_kv_heads is None else args.n_kv_heads
 
         self.n_rep = self.n_heads // self.n_kv_heads
-        assert self.args.dim % self.n_heads == 0, f"Embedding size ({self.args.dim}) is not a multiplier of number of heads ({self.n_heads})"
+        assert (
+            self.args.dim % self.n_heads == 0
+        ), f"Embedding size ({self.args.dim}) is not a multiplier of number of heads ({self.n_heads})"
         self.head_dim = self.args.dim // self.n_heads
 
         dense = partial(
@@ -148,7 +150,7 @@ class Attention(nnx.Module):
         mask = jnp.broadcast_to(mask, (bsz, *mask.shape[1:]))
         if padding_mask is not None:
             pad_attn_mask = padding_to_attention_mask(padding_mask, shape=mask.shape)
-            mask = nnx.combine_masks(mask, pad_attn_mask).astype(bool)
+            mask = nnx.combine_masks(mask, pad_attn_mask).astype(bool)  # type: ignore
 
         if self.args.use_cache:
             # shape of kv after concatenating to the cache is
@@ -157,7 +159,7 @@ class Attention(nnx.Module):
                 self.cache_k, self.cache_v, xk, xv, xq, mask, start_pos
             )
 
-        output = jax.nn.dot_product_attention(xq, xk, xv, mask=mask)
+        output = jax.nn.dot_product_attention(xq, xk, xv, mask=mask[:, None, :, :])
         output = output.reshape(output.shape[:2] + (self.args.dim,))
         return self.wo(output)
 
@@ -254,7 +256,7 @@ class TransformerBlock(nnx.Module):
         start_pos: int,
         sincos: jax.Array,
         full_causal_mask: jax.Array,
-        padding_mask: jax.Array | None = None
+        padding_mask: jax.Array | None = None,
     ):
         """
         Perform a forward pass through the TransformerBlock.
@@ -270,7 +272,11 @@ class TransformerBlock(nnx.Module):
 
         """
         h = x + self.attention(
-            self.attention_norm(x), start_pos, sincos, full_causal_mask, padding_mask=padding_mask
+            self.attention_norm(x),
+            start_pos,
+            sincos,
+            full_causal_mask,
+            padding_mask=padding_mask,
         )
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
@@ -317,12 +323,12 @@ class Transformer(nnx.Module):
             create_sinusoidal_positions(args.max_seq_len, args.dim // args.n_heads)
         )
         self.causal_mask = Static(
-            nnx.make_causal_mask(
-                jnp.ones(args.max_seq_len, dtype="bool"), dtype="bool"
-            )
+            nnx.make_causal_mask(jnp.ones(args.max_seq_len, dtype="bool"), dtype="bool")
         )
 
-    def __call__(self, tokens: jax.Array, start_pos: int, padding_mask: jax.Array | None = None):
+    def __call__(
+        self, tokens: jax.Array, start_pos: int, padding_mask: jax.Array | None = None
+    ):
         """
         Perform a forward pass through the Transformer model.
 
@@ -336,7 +342,13 @@ class Transformer(nnx.Module):
         """
         h = self.tok_embeddings(tokens)
         for i, layer in enumerate(self.layers):
-            h = layer(h, start_pos, self.sincos.value, self.causal_mask.value, padding_mask=padding_mask)
+            h = layer(
+                h,
+                start_pos,
+                self.sincos.value,
+                self.causal_mask.value,
+                padding_mask=padding_mask,
+            )
         h = self.norm(h)
         output = self.output(h).astype("float32")
         return output
