@@ -10,10 +10,10 @@ import jax
 import safetensors.flax as st
 from flax import nnx
 from huggingface_hub import snapshot_download
-from tokenizers import Tokenizer
 from tqdm import tqdm
 
 from fabrique import models
+from fabrique.tokenizer import Tokenizer
 from fabrique.utils import set_nested_attr
 
 ###############################################################################
@@ -164,8 +164,9 @@ def from_pretrained(model_id: str, revision: str | None = None, **model_args):
     with open(config_file) as fp:
         hf_config = json.load(fp)
     # load tokenizer
-    tokenizer_file = os.path.join(model_dir, "tokenizer.json")
-    tokenizer = Tokenizer.from_file(tokenizer_file)
+    # tokenizer_file = os.path.join(model_dir, "tokenizer.json")
+    # tokenizer = HFTokenizer.from_file(tokenizer_file)
+    tokenizer = Tokenizer.from_model_dir(model_dir)
     # load model
     model_type = hf_config["model_type"]
     cfg = get_load_config(model_type)
