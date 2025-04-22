@@ -65,7 +65,7 @@ class SampleState:
     prng_key: jnp.ndarray
 
 
-@partial(nnx.jit, static_argnums=(2, 3, 4, 5, 6, 7))
+@partial(nnx.jit, static_argnums=(2, 3, 4, 5, 6, 7, 9))
 def sample(
     model,
     prompt_tokens: jax.Array,
@@ -76,6 +76,7 @@ def sample(
     top_p: float = 1.0,
     top_k: int = 50,
     prng_key: jax.Array = jax.random.key(0),
+    debug: bool = False,
 ):
     def sample_cond_fn(state: SampleState):
         """state termination condition fn."""
@@ -157,74 +158,8 @@ def sample(
     # The very first prompt often has sequence length > 1, so run outside of `lax.while_loop` to comply with TPU
     if prompt_tokens.shape[1] > 1:
         state = sample_body_fn(state)
-    state = lax.while_loop(sample_cond_fn, sample_body_fn, state)
-    # state = debug_while_loop(greedy_search_cond_fn, greedy_search_body_fn, state)
+    if debug:
+        state = debug_while_loop(sample_cond_fn, sample_body_fn, state)
+    else:
+        state = lax.while_loop(sample_cond_fn, sample_body_fn, state)
     return state.sequences
-
-
-################################################################
-
-
-# def example():
-#     from fabrique.models.llm import LLM
-
-#     llm = LLM.from_pretrained(
-#         "meta-llama/Meta-Llama-3.1-8B-Instruct",
-#         max_batch_size=1,
-#         max_seq_len=4096,
-#         dtype=jnp.bfloat16,
-#         param_dtype=jnp.bfloat16
-#     )
-#     model, tokenizer, hf_config = llm.model, llm.tokenizer, llm.hf_config
-
-#     # prompt = """{"name": "Thomas", "surname": "Anderson", "age":"""
-#     # prompt = """<|begin_of_text|><|start_header_id|>user<|end_header_id|>
-#     #     What is the capital of France?<|eot_id|>
-#     #     <|start_header_id|>assistant<|end_header_id|>"""
-#     prompt = '<|begin_of_text|><|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\nToday Date: 26 Jul 2024\n\n<|eot_id|><|start_header_id|>user<|end_header_id|>\n\nWhat time is it?<|eot_id|>'
-#     prompt_tokens = tokenizer.encode(prompt).ids
-#     prompt_tokens = jnp.asarray(prompt_tokens).reshape(1, -1)
-
-#     jax.config.update("jax_explain_cache_misses", True)
-
-#     rngs = nnx.Rngs(0)
-#     prng_key = rngs()
-
-#     sequences = sample(
-#         model,
-#         prompt_tokens,
-#         pad_token_id=llm.special_tokens.eos_id,
-#         eos_token_id=llm.special_tokens.eos_ids,
-#         max_length=128,
-#         temperature=1,
-#         # top_p=0.5,
-#         # top_k=3,
-#         prng_key=prng_key
-#     )
-#     out = tokenizer.decode(sequences[0])
-#     print(out)
-
-
-#     self = llm
-#     sequences = sample(
-#         model,
-#         prompt_tokens,
-#         pad_token_id=self.special_tokens.eos_id,
-#         eos_token_id=self.special_tokens.eos_ids,
-#         max_length=max_length,
-#         temperature=temperature,
-#         top_p=top_p,
-#         top_k=top_k,
-#         prng_key=prng_key,
-#     )
-#     out = tokenizer.decode(sequences[0])
-#     print(out)
-
-#     pad_token_id = hf_config.get("pad_token_id") or hf_config["eos_token_id"][0]
-#     eos_token_id = tuple(hf_config["eos_token_id"])
-#     max_length = 512
-#     temperature: float = 1.0
-#     top_p: float = 1.0
-#     top_k: int = 50
-#     rngs: nnx.Rngs = nnx.Rngs(0)
-#     prng_key = rngs()

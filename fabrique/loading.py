@@ -147,13 +147,13 @@ def tweak_model_args(model_args):
     return model_args
 
 
-def from_pretrained(model_id: str, revision: str | None = None, **model_args):
+def from_pretrained(model_id: str, revision: str | None = None, **kwargs):
     """
     Load a model from a Huggingface Hub.
 
     Args:
         repo_id (str): ID of a model repo in Hugginface Hub.
-        **model_args: Keyword arguments to overwrite defaults in ModArgsC().
+        **model_args: Keyword arguments to overwrite defaults in ModelArgs().
 
     Returns:
         Tuple of (tokenizer, model, hf_config).
@@ -170,8 +170,8 @@ def from_pretrained(model_id: str, revision: str | None = None, **model_args):
     # load model
     model_type = hf_config["model_type"]
     cfg = get_load_config(model_type)
-    model_args = tweak_model_args(model_args)
-    args = cfg.model_args_class.from_file(config_file, **model_args)
+    kwargs = tweak_model_args(kwargs)
+    args = cfg.model_args_class.from_file(config_file, **kwargs)
     model = cfg.model_class(args)
     update_model_from_safe(model, cfg.rules, model_dir)
     # load chat template

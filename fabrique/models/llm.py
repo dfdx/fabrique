@@ -8,6 +8,7 @@ from flax import nnx
 from jinja2 import Environment
 from multimethod import multimethod
 
+from fabrique.tokenizer import Tokenizer
 from fabrique.generation import sample
 from fabrique.loading import from_pretrained
 
@@ -57,7 +58,7 @@ class SpecialTokenMap:
 
 class LLM:
 
-    def __init__(self, tokenizer, model, hf_config: dict, name: str = ""):
+    def __init__(self, tokenizer: Tokenizer, model, hf_config: dict, name: str = ""):
         self.tokenizer = tokenizer
         self.model = model
         self.hf_config = hf_config
@@ -83,7 +84,7 @@ class LLM:
         assert self.chat_template is not None, "This LLM doesn't have a chate template"
         return self.chat_template.render(
             messages=msg_dicts,
-            bos_token=self.tokenizer.id_to_token(self.special_tokens.bos_id),
+            bos_token=self.tokenizer.hf.id_to_token(self.special_tokens.bos_id),
             # eos_token=self.tokenizer.id_to_token(self.eos_token_id),
         ).strip()
 
@@ -114,6 +115,7 @@ class LLM:
         top_k: int = 50,
         prng_key: jax.Array | None = None,
         skip_special_tokens: bool = True,
+        debug: bool = False,
     ):
         max_batch_size = self.model.args.max_batch_size
         if len(prompts) > max_batch_size:
@@ -121,7 +123,7 @@ class LLM:
                 f"Trying to generate response for {len(prompts)} prompts, "
                 + f"but model is initialized with max_batch_size = {max_batch_size}"
             )
-        prompt_token_list = [enc.ids for enc in self.tokenizer.encode_batch(prompts)]
+        prompt_token_list = [enc.ids for enc in self.tokenizer.hf.encode_batch(prompts)]
         prompt_tokens = self.collate_with_padding(
             prompt_token_list, self.special_tokens.pad_id or self.special_tokens.bos_id
         )
@@ -135,12 +137,13 @@ class LLM:
             top_p=top_p,
             top_k=top_k,
             prng_key=prng_key if prng_key is not None else self.rngs(),
+            debug=debug,
         )
         out = []
         for seq in sequences:
             if new_only:
                 seq = seq[prompt_tokens.shape[1] :]
-            generated = self.tokenizer.decode(
+            generated = self.tokenizer.hf.decode(
                 seq, skip_special_tokens=skip_special_tokens
             )
             out.append(generated)
