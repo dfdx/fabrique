@@ -90,6 +90,7 @@ class Attention(nnx.Module):
             dtype=self.args.dtype,
             param_dtype=self.args.param_dtype,
             kernel_init=jax.nn.initializers.normal(0.02),  # 0.02 - initializer range,
+            precision="highest",
             rngs=rngs,
         )
         self.wq = dense(args.dim, self.n_heads * self.head_dim)
