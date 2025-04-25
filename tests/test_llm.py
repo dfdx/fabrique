@@ -84,7 +84,7 @@ def main3():
 
     t_m = AutoModelForCausalLM.from_pretrained(model_id, device_map="auto", torch_dtype=torch.bfloat16)
     t_tokens, t_padding_mask = j2t(tokens, t_m.device), j2t(padding_mask, t_m.device)
-    attention_mask = j2t(attn_mask, t_m.device)  # causal mask!!!
+    attention_mask = j2t(attn_mask, t_m.device).to(bool)  # causal mask!!!
     t_out = t_m(t_tokens, attention_mask=t_padding_mask).logits
 
 
@@ -137,21 +137,25 @@ def main3():
     hidden_states = j2t(x, t_m.device)
     diff(m.layers[0].attention.wk(x), t_m.model.layers[0].self_attn.k_proj(hidden_states))
 
+    x = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
+    hidden_states = j2t(x, t_m.device)
+    j_r = m.layers[0].attention(x, 0)
+    t_r = t_m.model.layers[0].self_attn(hidden_states, position_embeddings, attention_mask)[0]
+    diff(j_r, t_r)
+
+    j_r = m.layers[0](x, 0)
+    t_r = t_m.model.layers[0](hidden_states, attention_mask=attention_mask, position_ids=position_ids, position_embeddings=position_embeddings)[0]
+    diff(j_r, t_r)
 
 
-    # TODO (2025-04-25):
+    # TODO: make rope_theta configurable for all models
     # setting precision="highest" fixed divergence in xk and xv, but introduced in xq
     # perhaps we want to make precision configurable, but in this case none of these
     # isses seems to be the root cause.
-    # more likely the huge divergence comes from RoPE, since diff() gives > 4.0
-    # divergence after it.
-    # presumably, the problem is in the base theta value:
-    # https://github.com/adalkiran/llama-nuts-and-bolts/blob/main/docs/10-ROPE-ROTARY-POSITIONAL-EMBEDDINGS.md
-    # > The original paper suggests using 10000 as base theta value,
-    # > and the Llama 2 model uses this value. But newer versions of
-    # > Llama (3 and higher) started to use 500000 as base theta value,
-    # > so, we will stick to using 500000.
-    # next step - try to hardcore the new value and check the divergence
+
+    # TODO: next hypothesis - errors due to precision accumulate over layers
+    # => check errors after layer 1, layer 2, etc
+
 
     # jax - attention
     from fabrique.models.common.embeddings import apply_rotary_pos_emb
@@ -160,8 +164,8 @@ def main3():
 
     x = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
     self = m.layers[0].attention
+    j_self = self
     start_pos = 0
-    padding_mask = padding_mask
 
     bsz, seq_len, _ = x.shape
     q_len = seq_len
@@ -177,28 +181,29 @@ def main3():
 
     # apply masks. note: masks have shape (bsz, q_len, kv_len)
     # kv_len depends on the use of cache - see its definition above
-    padding_mask = jax.lax.dynamic_slice(
+    mask = jax.lax.dynamic_slice(
         self.full_causal_mask.value, (0, start_pos, 0), (1, q_len, kv_len)
     )
-    padding_mask = jnp.broadcast_to(padding_mask, (bsz, *padding_mask.shape[1:]))
+    mask = jnp.broadcast_to(mask, (bsz, *mask.shape[1:]))
     if padding_mask is not None:
-        pad_attn_mask = padding_to_attention_mask(padding_mask, shape=padding_mask.shape)
-        padding_mask = nnx.combine_masks(padding_mask, pad_attn_mask).astype(bool)  # type: ignore
+        pad_attn_mask = padding_to_attention_mask(padding_mask, shape=mask.shape)
+        mask = nnx.combine_masks(mask, pad_attn_mask).astype(bool)  # type: ignore
 
     if self.args.use_cache:
         # shape of kv after concatenating to the cache is
         # [bs, max_seq_len, n_heads, head_dim]
-        xk, xv, padding_mask = concatenate_to_cache(
-            self.cache_k, self.cache_v, xk, xv, xq, padding_mask, start_pos
+        xk, xv, mask = concatenate_to_cache(
+            self.cache_k, self.cache_v, xk, xv, xq, mask, start_pos
         )
 
-    output = jax.nn.dot_product_attention(xq, xk, xv, mask=padding_mask[:, None, :, :])
+    output = jax.nn.dot_product_attention(xq, xk, xv, mask=mask[:, None, :, :])
     output = output.reshape(output.shape[:2] + (self.args.dim,))
-
+    output = self.wo(output)
 
     # torch - attention
     hidden_states = j2t(x).to(t_m.device)
     self = t_m.model.layers[0].self_attn
+    t_self = self
 
     past_key_value = past_key_values
 
@@ -217,25 +222,17 @@ def main3():
         cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
         key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-    attention_interface: Callable = eager_attention_forward
-    if self.config._attn_implementation != "eager":
-        if self.config._attn_implementation == "sdpa" and kwargs.get("output_attentions", False):
-            logger.warning_once(
-                "`torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to "
-                'eager attention. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
-            )
-        else:
-            attention_interface = ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
+    attention_interface = tfm.models.llama.modeling_llama.ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
     attn_output, attn_weights = attention_interface(
         self,
         query_states,
         key_states,
         value_states,
-        attention_mask,
+        attention_mask.to(bool),
         dropout=0.0 if not self.training else self.attention_dropout,
         scaling=self.scaling,
-        **kwargs,
+        # **kwargs,
     )
 
     attn_output = attn_output.reshape(*input_shape, -1).contiguous()

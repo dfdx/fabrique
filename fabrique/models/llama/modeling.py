@@ -29,6 +29,7 @@ class ModelArgs:
     ffn_hidden_size: int = 14336
     ffn_dim_multiplier: Optional[float] = None
     norm_eps: float = 1e-5
+    rope_theta: float = 10000
     max_batch_size: int = 32
     max_seq_len: int = 2048
     dtype: jnp.dtype = jnp.float32
@@ -52,6 +53,7 @@ class ModelArgs:
             # ffn_dim_multiplier=
             ffn_hidden_size=config["intermediate_size"],
             norm_eps=config["rms_norm_eps"],
+            rope_theta=config["rope_theta"],
             # max_batch_size=
             max_seq_len=config["max_position_embeddings"],
         )
@@ -303,7 +305,7 @@ class Transformer(nnx.Module):
         )
 
         sincos = Static(
-            create_sinusoidal_positions(args.max_seq_len, args.dim // args.n_heads)
+            create_sinusoidal_positions(args.max_seq_len, args.dim // args.n_heads, theta=args.rope_theta)
         )
         full_causal_mask = Static(
             nnx.make_causal_mask(jnp.ones(args.max_seq_len, dtype="bool"), dtype="bool")
