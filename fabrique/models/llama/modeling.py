@@ -92,13 +92,12 @@ class Attention(nnx.Module):
             dtype=self.args.dtype,
             param_dtype=self.args.param_dtype,
             kernel_init=jax.nn.initializers.normal(0.02),  # 0.02 - initializer range,
-            precision="highest",
             rngs=rngs,
         )
         self.wq = dense(args.dim, self.n_heads * self.head_dim)
-        self.wk = dense(args.dim, self.n_kv_heads * self.head_dim)
-        self.wv = dense(args.dim, self.n_kv_heads * self.head_dim)
-        self.wo = dense(self.n_heads * self.head_dim, self.args.dim)
+        self.wk = dense(args.dim, self.n_kv_heads * self.head_dim, precision="highest")
+        self.wv = dense(args.dim, self.n_kv_heads * self.head_dim, precision="highest")
+        self.wo = dense(self.n_heads * self.head_dim, self.args.dim, precision="highest")
         # if use_cache == False, we still create the variable to keep the same structure
         # but set its length to zero
         cache_len = self.args.max_seq_len if self.args.use_cache else 0
@@ -204,6 +203,7 @@ class FeedForward(nnx.Module):
             param_dtype=self.param_dtype,
             dtype=self.dtype,
             rngs=rngs,
+            precision="highest",
         )
         self.w1 = linear(dim, hidden_dim)
         self.w2 = linear(hidden_dim, dim)

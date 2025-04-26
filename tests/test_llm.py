@@ -87,6 +87,7 @@ def main3():
     attention_mask = j2t(attn_mask, t_m.device).to(bool)  # causal mask!!!
     t_out = t_m(t_tokens, attention_mask=t_padding_mask).logits
 
+    diff(out, t_out)
 
     tok_emb = m.tok_embeddings(tokens)
     t_tok_emb = t_m.model.embed_tokens(t_tokens)
@@ -123,6 +124,8 @@ def main3():
     # TODO
     # create an utility to check divergence when applying 2 equivalent layers to a sample input?
 
+    # TODO (2025-04-27): rotary embeddings still introduce divergence of 0.0625
+
 
     # DIVERGENCE!
     # explanation of (0.0078 == 2 ** -7) difference:
@@ -135,7 +138,8 @@ def main3():
     # NOTE: setting precision (in model code!) to "highest" fixes the divergence
     x = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
     hidden_states = j2t(x, t_m.device)
-    diff(m.layers[0].attention.wk(x), t_m.model.layers[0].self_attn.k_proj(hidden_states))
+    diff(m.layers[0].attention.wv(x), t_m.model.layers[0].self_attn.v_proj(hidden_states))
+
 
     x = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
     hidden_states = j2t(x, t_m.device)
@@ -145,6 +149,15 @@ def main3():
 
     j_r = m.layers[0](x, 0)
     t_r = t_m.model.layers[0](hidden_states, attention_mask=attention_mask, position_ids=position_ids, position_embeddings=position_embeddings)[0]
+    diff(j_r, t_r)
+
+
+    j_r = m.layers[1](j_r, 1)
+    t_r = t_m.model.layers[1](t_r, attention_mask=attention_mask, position_ids=position_ids, position_embeddings=position_embeddings)[0]
+    diff(j_r, t_r)
+
+    j_r = m.layers[2](j_r, 1)
+    t_r = t_m.model.layers[2](t_r, attention_mask=attention_mask, position_ids=position_ids, position_embeddings=position_embeddings)[0]
     diff(j_r, t_r)
 
 
