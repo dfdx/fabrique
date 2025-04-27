@@ -126,6 +126,9 @@ def main3():
 
     # TODO (2025-04-27): rotary embeddings still introduce divergence of 0.0625
 
+    # TODO (2025-04-28): position_embeddings in PyTorch are different for Llama 3.2
+    # compare t_m.model.rotary_emb.sin/cos and m.layers[0].attention.sincos
+
 
     # DIVERGENCE!
     # explanation of (0.0078 == 2 ** -7) difference:
