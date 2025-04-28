@@ -12,6 +12,59 @@ def create_sinusoidal_positions(num_pos, dim, theta=10000):
     return np.concatenate((np.sin(emb), np.cos(emb)), axis=-1)
 
 
+
+def _llama_rope_scaling(
+    inv_freq: jax.Array,
+    factor=8,
+    low_freq_factor=1,
+    high_freq_factor=4,
+    old_context_len=8192
+):
+    low_freq_wavelen = old_context_len / low_freq_factor
+    high_freq_wavelen = old_context_len / high_freq_factor
+
+    wavelen = 2 * jnp.pi / inv_freq
+    # wavelen < high_freq_wavelen: do nothing
+    # wavelen > low_freq_wavelen: divide by factor
+    inv_freq_llama = jnp.where(wavelen > low_freq_wavelen, inv_freq / factor, inv_freq)
+    # otherwise: interpolate between the two, using a smooth factor
+    smooth_factor = (old_context_len / wavelen - low_freq_factor) / (high_freq_factor - low_freq_factor)
+    smoothed_inv_freq = (1 - smooth_factor) * inv_freq_llama / factor + smooth_factor * inv_freq_llama
+    is_medium_freq = ~(wavelen < high_freq_wavelen) * ~(wavelen > low_freq_wavelen)
+    inv_freq_llama = jnp.where(is_medium_freq, smoothed_inv_freq, inv_freq_llama)
+    return inv_freq_llama
+
+
+def create_llama_sinusoidal_positions(
+    num_pos,
+    dim,
+    theta=10000,
+    factor=8,
+    low_freq_factor=1,
+    high_freq_factor=4,
+    old_context_len=8192
+):
+    # original inv_freq
+    inv_freq = 1.0 / (theta ** (np.arange(0, dim, 2) / dim))
+
+    # Llama specifics
+    inv_freq_llama = _llama_rope_scaling(
+        inv_freq,
+        factor=factor,
+        low_freq_factor=low_freq_factor,
+        high_freq_factor=high_freq_factor,
+        old_context_len=old_context_len
+    )
+
+    # original emb calculation, cont'd
+    freqs = np.einsum("i , j -> i j", np.arange(num_pos), inv_freq_llama).astype("float32")
+    emb = np.concatenate((freqs, freqs), axis=-1)
+    return np.concatenate((np.sin(emb), np.cos(emb)), axis=-1)
+
+
+
+
+
 def rotate_half(tensor):
     """Rotates half the hidden dims of the input."""
     rotate_half_tensor = jnp.concatenate(

@@ -6,12 +6,13 @@ from typing import Optional
 import jax
 import jax.numpy as jnp
 from flax import nnx
+from flax.core import FrozenDict
 from flax.nnx.graph import Static
 
 from fabrique.models.common.cache import KVCache, concatenate_to_cache
 from fabrique.models.common.embeddings import (
     apply_rotary_pos_emb,
-    create_sinusoidal_positions,
+    create_llama_sinusoidal_positions,
 )
 from fabrique.models.common.norm import RMSNorm
 from fabrique.models.common.utils import padding_to_attention_mask
@@ -30,6 +31,12 @@ class ModelArgs:
     ffn_dim_multiplier: Optional[float] = None
     norm_eps: float = 1e-5
     rope_theta: float = 10000
+    rope_scaling: FrozenDict = FrozenDict({
+        "factor": 32.0,
+        "high_freq_factor": 4.0,
+        "low_freq_factor": 1.0,
+        "original_max_position_embeddings": 8192,
+    })
     max_batch_size: int = 32
     max_seq_len: int = 2048
     dtype: jnp.dtype = jnp.float32
@@ -54,6 +61,7 @@ class ModelArgs:
             ffn_hidden_size=config["intermediate_size"],
             norm_eps=config["rms_norm_eps"],
             rope_theta=config["rope_theta"],
+            rope_scaling=config["rope_scaling"],
             # max_batch_size=
             max_seq_len=config["max_position_embeddings"],
         )
@@ -305,7 +313,15 @@ class Transformer(nnx.Module):
         )
 
         sincos = Static(
-            create_sinusoidal_positions(args.max_seq_len, args.dim // args.n_heads, theta=args.rope_theta)
+            create_llama_sinusoidal_positions(
+                args.max_seq_len,
+                args.dim // args.n_heads,
+                theta=args.rope_theta,
+                factor=args.rope_scaling["factor"],
+                low_freq_factor=args.rope_scaling["low_freq_factor"],
+                high_freq_factor=args.rope_scaling["high_freq_factor"],
+                old_context_len=args.rope_scaling["original_max_position_embeddings"],
+            )
         )
         full_causal_mask = Static(
             nnx.make_causal_mask(jnp.ones(args.max_seq_len, dtype="bool"), dtype="bool")

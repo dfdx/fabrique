@@ -129,6 +129,30 @@ def main3():
     # TODO (2025-04-28): position_embeddings in PyTorch are different for Llama 3.2
     # compare t_m.model.rotary_emb.sin/cos and m.layers[0].attention.sincos
 
+    args = m.args
+    num_pos = args.max_seq_len
+    dim = args.dim // args.n_heads
+    theta=args.rope_theta
+    factor=args.rope_scaling["factor"]
+    low_freq_factor=args.rope_scaling["low_freq_factor"]
+    high_freq_factor=args.rope_scaling["high_freq_factor"]
+    old_context_len=args.rope_scaling["original_max_position_embeddings"]
+
+    import numpy as np
+    inv_freq = 1.0 / (theta ** (np.arange(0, dim, 2) / dim))
+
+    from fabrique.models.common.embeddings import _llama_rope_scaling
+    # Llama specifics
+    inv_freq_llama = _llama_rope_scaling(
+        inv_freq,
+        factor=factor,
+        low_freq_factor=low_freq_factor,
+        high_freq_factor=high_freq_factor,
+        old_context_len=old_context_len
+    )
+
+    t_inv_freq = t_m.model.rotary_emb.inv_freq
+    diff(inv_freq_llama, t_inv_freq)
 
     # DIVERGENCE!
     # explanation of (0.0078 == 2 ** -7) difference:
