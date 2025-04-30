@@ -38,6 +38,13 @@ def test_inference():
 
 ############################################################################
 
+# TODO:
+# 1. make precision configurable for all models, maybe per module
+# 2. cast sincos to bfloat16
+
+
+############################################################################
+
 import torch
 
 
@@ -129,51 +136,82 @@ def main3():
     # TODO (2025-04-28): position_embeddings in PyTorch are different for Llama 3.2
     # compare t_m.model.rotary_emb.sin/cos and m.layers[0].attention.sincos
 
-    args = m.args
-    num_pos = args.max_seq_len
-    dim = args.dim // args.n_heads
-    theta=args.rope_theta
-    factor=args.rope_scaling["factor"]
-    low_freq_factor=args.rope_scaling["low_freq_factor"]
-    high_freq_factor=args.rope_scaling["high_freq_factor"]
-    old_context_len=args.rope_scaling["original_max_position_embeddings"]
 
-    import numpy as np
-    inv_freq = 1.0 / (theta ** (np.arange(0, dim, 2) / dim))
+    ########################################### RoPE ###################################
 
-    from fabrique.models.common.embeddings import _llama_rope_scaling
-    # Llama specifics
-    inv_freq_llama = _llama_rope_scaling(
-        inv_freq,
-        factor=factor,
-        low_freq_factor=low_freq_factor,
-        high_freq_factor=high_freq_factor,
-        old_context_len=old_context_len
-    )
+    # args = m.args
+    # num_pos = args.max_seq_len
+    # dim = args.dim // args.n_heads
+    # theta=args.rope_theta
+    # factor=args.rope_scaling["factor"]
+    # low_freq_factor=args.rope_scaling["low_freq_factor"]
+    # high_freq_factor=args.rope_scaling["high_freq_factor"]
+    # old_context_len=args.rope_scaling["original_max_position_embeddings"]
 
-    t_inv_freq = t_m.model.rotary_emb.inv_freq
-    diff(inv_freq_llama, t_inv_freq)
+    # import numpy as np
+    # inv_freq = 1.0 / (theta ** (np.arange(0, dim, 2) / dim))
 
-    # DIVERGENCE!
-    # explanation of (0.0078 == 2 ** -7) difference:
-    # https://chatgpt.com/c/680abe75-fb28-800a-b61f-e458a4421a12
+    # from fabrique.models.common.embeddings import _llama_rope_scaling
+    # # Llama specifics
+    # inv_freq_llama = _llama_rope_scaling(
+    #     inv_freq,
+    #     factor=factor,
+    #     low_freq_factor=low_freq_factor,
+    #     high_freq_factor=high_freq_factor,
+    #     old_context_len=old_context_len
+    # )
+
+    # t_inv_freq = t_m.model.rotary_emb.inv_freq
+    # diff(inv_freq_llama, t_inv_freq)
+
+
+    # sincos = m.layers[0].attention.sincos.value[:8]
+    # t_cos, t_sin = position_embeddings
+    # diff(jnp.array(sincos[:, :64]), t_sin.squeeze())   # 0.0018
+    # diff(jnp.array(sincos[:, 64:]), t_cos.squeeze())   # 0.0019
+
+
+    # # jax
+    # freqs = np.einsum("i , j -> i j", np.arange(num_pos), inv_freq_llama).astype("float32")
+    # emb = np.concatenate((freqs, freqs), axis=-1)
+    # sincos = np.concatenate((np.sin(emb), np.cos(emb)), axis=-1)
+
+    # # torch
+    # t_rot_emb = t_m.model.rotary_emb
+    # t_inv_freq_expanded = t_rot_emb.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1).to("cuda")
+    # position_ids_expanded = position_ids[:, None, :].float()
+
+    # device_type = "cuda"
+    # with torch.autocast(device_type=device_type, enabled=False):  # Force float32
+    #     t_freqs = (t_inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
+    #     t_emb = torch.cat((t_freqs, t_freqs), dim=-1)
+    #     t_cos = t_emb.cos() * t_rot_emb.attention_scaling
+    #     t_sin = t_emb.sin() * t_rot_emb.attention_scaling
+
+    # return t_cos.to("bfloat16"), t_sin.to("bfloat16")
+
+
+
+    ########################################################################
+
     x = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
     hidden_states = j2t(x, t_m.device)
     diff(m.layers[0].attention.wq(x), t_m.model.layers[0].self_attn.q_proj(hidden_states))
 
 
-    # NOTE: setting precision (in model code!) to "highest" fixes the divergence
+    # checking attention's wv
     x = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
     hidden_states = j2t(x, t_m.device)
     diff(m.layers[0].attention.wv(x), t_m.model.layers[0].self_attn.v_proj(hidden_states))
 
-
+    # checking attention
     x = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
     hidden_states = j2t(x, t_m.device)
     j_r = m.layers[0].attention(x, 0)
     t_r = t_m.model.layers[0].self_attn(hidden_states, position_embeddings, attention_mask)[0]
     diff(j_r, t_r)
 
+    # layer 0
     j_r = m.layers[0](x, 0)
     t_r = t_m.model.layers[0](hidden_states, attention_mask=attention_mask, position_ids=position_ids, position_embeddings=position_embeddings)[0]
     diff(j_r, t_r)
@@ -236,9 +274,9 @@ def main3():
             self.cache_k, self.cache_v, xk, xv, xq, mask, start_pos
         )
 
-    output = jax.nn.dot_product_attention(xq, xk, xv, mask=mask[:, None, :, :])
-    output = output.reshape(output.shape[:2] + (self.args.dim,))
-    output = self.wo(output)
+    output = jax.nn.dot_product_attention(xq, xk, xv, mask=mask[:, None, :, :], implementation="cudnn")
+    output = output.reshape(output.shape[:2] + (j_self.args.dim,))
+    output = j_self.wo(output)
 
     # torch - attention
     hidden_states = j2t(x).to(t_m.device)
@@ -264,6 +302,10 @@ def main3():
 
     attention_interface = tfm.models.llama.modeling_llama.ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
+
+    # TODO: by here, all inputs seem to be equivalent (UP TO TRANSPOSE)
+    # but results of attention are different
+
     attn_output, attn_weights = attention_interface(
         self,
         query_states,
@@ -279,6 +321,32 @@ def main3():
     attn_output = self.o_proj(attn_output)
 
 
+    # MEGA ATTENTION EXPERIMENT
+    from fabrique.models.common.utils import repeat_kv as rkv
+    output = jax.nn.dot_product_attention(xq, rkv(xk, 4), rkv(xv, 4), mask=mask[:, None, :, :], implementation="cudnn")
+
+
+    from transformers.integrations.sdpa_attention import repeat_kv as t_repeat_kv
+    attn_output = torch.nn.functional.scaled_dot_product_attention(
+        query_states,
+        t_repeat_kv(key_states, 4),
+        t_repeat_kv(value_states, 4),
+        attn_mask=attention_mask,
+        #dropout_p=dropout,
+        # scale=scaling,
+        #is_causal=is_causal,
+    )
+
+    attn_output, attn_weights = attention_interface(
+        self,
+        query_states,
+        key_states,
+        value_states,
+        attention_mask.to(bool),
+        dropout=0.0 if not self.training else self.attention_dropout,
+        scaling=self.scaling,
+        # **kwargs,
+    )
 
 
 

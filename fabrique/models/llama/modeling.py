@@ -105,7 +105,7 @@ class Attention(nnx.Module):
         self.wq = dense(args.dim, self.n_heads * self.head_dim)
         self.wk = dense(args.dim, self.n_kv_heads * self.head_dim, precision="highest")
         self.wv = dense(args.dim, self.n_kv_heads * self.head_dim, precision="highest")
-        self.wo = dense(self.n_heads * self.head_dim, self.args.dim, precision="highest")
+        self.wo = dense(self.n_heads * self.head_dim, self.args.dim)
         # if use_cache == False, we still create the variable to keep the same structure
         # but set its length to zero
         cache_len = self.args.max_seq_len if self.args.use_cache else 0
@@ -160,7 +160,7 @@ class Attention(nnx.Module):
                 self.cache_k, self.cache_v, xk, xv, xq, mask, start_pos
             )
 
-        output = jax.nn.dot_product_attention(xq, xk, xv, mask=mask[:, None, :, :])
+        output = jax.nn.dot_product_attention(xq, xk, xv, mask=mask[:, None, :, :], implementation="cudnn")
         output = output.reshape(output.shape[:2] + (self.args.dim,))
         return self.wo(output)
 
@@ -211,7 +211,7 @@ class FeedForward(nnx.Module):
             param_dtype=self.param_dtype,
             dtype=self.dtype,
             rngs=rngs,
-            precision="highest",
+            # precision="highest",
         )
         self.w1 = linear(dim, hidden_dim)
         self.w2 = linear(hidden_dim, dim)
@@ -321,7 +321,7 @@ class Transformer(nnx.Module):
                 low_freq_factor=args.rope_scaling["low_freq_factor"],
                 high_freq_factor=args.rope_scaling["high_freq_factor"],
                 old_context_len=args.rope_scaling["original_max_position_embeddings"],
-            )
+            ).astype(args.dtype)
         )
         full_causal_mask = Static(
             nnx.make_causal_mask(jnp.ones(args.max_seq_len, dtype="bool"), dtype="bool")
