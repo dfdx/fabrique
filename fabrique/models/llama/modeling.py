@@ -211,7 +211,7 @@ class FeedForward(nnx.Module):
             param_dtype=self.param_dtype,
             dtype=self.dtype,
             rngs=rngs,
-            # precision="highest",
+            precision="highest",
         )
         self.w1 = linear(dim, hidden_dim)
         self.w2 = linear(hidden_dim, dim)

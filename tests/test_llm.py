@@ -66,8 +66,8 @@ def main_debug_pt():
 
 # main_debug_pt()
 
-def diff(x, t_x):
-    c_x = j2t(x).to(t_x.device)
+def diff(x, t_x, device=None):
+    c_x = j2t(x).to(device or t_x.device)
     return (c_x - t_x).max().item()
 
 
@@ -193,6 +193,35 @@ def main3():
 
 
     ########################################################################
+    x = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
+    diff(m.layers[0].feed_forward(x), t_m.model.layers[0].mlp(j2t(x)))
+
+    j_ff = m.layers[0].feed_forward
+    t_ff = t_m.model.layers[0].mlp
+
+    j1 = j_ff.w1(x)
+    j2 = j_ff.w3(x)
+    j3 = j1 * j2
+    j4 = nnx.silu(j3)
+    j5 = j_ff.w2(j4)
+
+    t1 = t_ff.gate_proj(j2t(x))
+    t2 = t_ff.up_proj(j2t(x))
+    t3 = t1 * t2
+    t4 = t_ff.act_fn(t3)
+    t5 = t_ff.down_proj(t4)
+
+    diff(j1, t1)
+    diff(j2, t2)
+    diff(j3, t3)
+    diff(j4, t4)
+    diff(j5, t5)
+
+
+
+    down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+    self.w2(nnx.silu(self.w1(x)) * self.w3(x))
+
 
     x = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
     hidden_states = j2t(x, t_m.device)
@@ -235,153 +264,160 @@ def main3():
     # => check errors after layer 1, layer 2, etc
 
 
-    # jax - attention
-    from fabrique.models.common.embeddings import apply_rotary_pos_emb
-    from fabrique.models.common.utils import padding_to_attention_mask
-    from fabrique.models.common.cache import concatenate_to_cache
+    # # jax - attention
+    # from fabrique.models.common.embeddings import apply_rotary_pos_emb
+    # from fabrique.models.common.utils import padding_to_attention_mask
+    # from fabrique.models.common.cache import concatenate_to_cache
 
-    x = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
-    self = m.layers[0].attention
-    j_self = self
-    start_pos = 0
+    # x = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
+    # self = m.layers[0].attention
+    # j_self = self
+    # start_pos = 0
 
-    bsz, seq_len, _ = x.shape
-    q_len = seq_len
-    kv_len = self.args.max_seq_len if self.args.use_cache else seq_len
+    # bsz, seq_len, _ = x.shape
+    # q_len = seq_len
+    # kv_len = self.args.max_seq_len if self.args.use_cache else seq_len
 
-    xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
+    # xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
-    xq = xq.reshape(bsz, seq_len, self.n_heads, self.head_dim)
-    xk = xk.reshape(bsz, seq_len, self.n_kv_heads, self.head_dim)
-    xv = xv.reshape(bsz, seq_len, self.n_kv_heads, self.head_dim)
+    # xq = xq.reshape(bsz, seq_len, self.n_heads, self.head_dim)
+    # xk = xk.reshape(bsz, seq_len, self.n_kv_heads, self.head_dim)
+    # xv = xv.reshape(bsz, seq_len, self.n_kv_heads, self.head_dim)
 
-    xq, xk = apply_rotary_pos_emb(xq, xk, self.sincos.value, start_pos)
+    # xq, xk = apply_rotary_pos_emb(xq, xk, self.sincos.value, start_pos)
 
-    # apply masks. note: masks have shape (bsz, q_len, kv_len)
-    # kv_len depends on the use of cache - see its definition above
-    mask = jax.lax.dynamic_slice(
-        self.full_causal_mask.value, (0, start_pos, 0), (1, q_len, kv_len)
-    )
-    mask = jnp.broadcast_to(mask, (bsz, *mask.shape[1:]))
-    if padding_mask is not None:
-        pad_attn_mask = padding_to_attention_mask(padding_mask, shape=mask.shape)
-        mask = nnx.combine_masks(mask, pad_attn_mask).astype(bool)  # type: ignore
+    # # apply masks. note: masks have shape (bsz, q_len, kv_len)
+    # # kv_len depends on the use of cache - see its definition above
+    # mask = jax.lax.dynamic_slice(
+    #     self.full_causal_mask.value, (0, start_pos, 0), (1, q_len, kv_len)
+    # )
+    # mask = jnp.broadcast_to(mask, (bsz, *mask.shape[1:]))
+    # if padding_mask is not None:
+    #     pad_attn_mask = padding_to_attention_mask(padding_mask, shape=mask.shape)
+    #     mask = nnx.combine_masks(mask, pad_attn_mask).astype(bool)  # type: ignore
 
-    if self.args.use_cache:
-        # shape of kv after concatenating to the cache is
-        # [bs, max_seq_len, n_heads, head_dim]
-        xk, xv, mask = concatenate_to_cache(
-            self.cache_k, self.cache_v, xk, xv, xq, mask, start_pos
-        )
+    # if self.args.use_cache:
+    #     # shape of kv after concatenating to the cache is
+    #     # [bs, max_seq_len, n_heads, head_dim]
+    #     xk, xv, mask = concatenate_to_cache(
+    #         self.cache_k, self.cache_v, xk, xv, xq, mask, start_pos
+    #     )
 
-    output = jax.nn.dot_product_attention(xq, xk, xv, mask=mask[:, None, :, :], implementation="cudnn")
-    output = output.reshape(output.shape[:2] + (j_self.args.dim,))
-    output = j_self.wo(output)
+    # output = jax.nn.dot_product_attention(xq, xk, xv, mask=mask[:, None, :, :], implementation="cudnn")
+    # output = output.reshape(output.shape[:2] + (j_self.args.dim,))
+    # output = j_self.wo(output)
 
-    # torch - attention
-    hidden_states = j2t(x).to(t_m.device)
-    self = t_m.model.layers[0].self_attn
-    t_self = self
+    # # torch - attention
+    # hidden_states = j2t(x).to(t_m.device)
+    # self = t_m.model.layers[0].self_attn
+    # t_self = self
 
-    past_key_value = past_key_values
+    # past_key_value = past_key_values
 
-    input_shape = hidden_states.shape[:-1]
-    hidden_shape = (*input_shape, -1, self.head_dim)
+    # input_shape = hidden_states.shape[:-1]
+    # hidden_shape = (*input_shape, -1, self.head_dim)
 
-    query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-    key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
-    value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+    # query_states = self.q_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+    # key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
+    # value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
-    cos, sin = position_embeddings
-    query_states, key_states = tfm.models.llama.modeling_llama.apply_rotary_pos_emb(query_states, key_states, cos, sin)
+    # cos, sin = position_embeddings
+    # query_states, key_states = tfm.models.llama.modeling_llama.apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
-    if past_key_value is not None:
-        # sin and cos are specific to RoPE models; cache_position needed for the static cache
-        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-        key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+    # if past_key_value is not None:
+    #     # sin and cos are specific to RoPE models; cache_position needed for the static cache
+    #     cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
+    #     key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
-    attention_interface = tfm.models.llama.modeling_llama.ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
-
-
-    # TODO: by here, all inputs seem to be equivalent (UP TO TRANSPOSE)
-    # but results of attention are different
-
-    attn_output, attn_weights = attention_interface(
-        self,
-        query_states,
-        key_states,
-        value_states,
-        attention_mask.to(bool),
-        dropout=0.0 if not self.training else self.attention_dropout,
-        scaling=self.scaling,
-        # **kwargs,
-    )
-
-    attn_output = attn_output.reshape(*input_shape, -1).contiguous()
-    attn_output = self.o_proj(attn_output)
+    # attention_interface = tfm.models.llama.modeling_llama.ALL_ATTENTION_FUNCTIONS[self.config._attn_implementation]
 
 
-    # MEGA ATTENTION EXPERIMENT
-    from fabrique.models.common.utils import repeat_kv as rkv
-    output = jax.nn.dot_product_attention(xq, rkv(xk, 4), rkv(xv, 4), mask=mask[:, None, :, :], implementation="cudnn")
+    # # TODO: by here, all inputs seem to be equivalent (UP TO TRANSPOSE)
+    # # but results of attention are different
+
+    # attn_output, attn_weights = attention_interface(
+    #     self,
+    #     query_states,
+    #     key_states,
+    #     value_states,
+    #     attention_mask.to(bool),
+    #     dropout=0.0 if not self.training else self.attention_dropout,
+    #     scaling=self.scaling,
+    #     # **kwargs,
+    # )
+
+    # attn_output = attn_output.reshape(*input_shape, -1).contiguous()
+    # attn_output = self.o_proj(attn_output)
 
 
-    from transformers.integrations.sdpa_attention import repeat_kv as t_repeat_kv
-    attn_output = torch.nn.functional.scaled_dot_product_attention(
-        query_states,
-        t_repeat_kv(key_states, 4),
-        t_repeat_kv(value_states, 4),
-        attn_mask=attention_mask,
-        #dropout_p=dropout,
-        # scale=scaling,
-        #is_causal=is_causal,
-    )
-
-    attn_output, attn_weights = attention_interface(
-        self,
-        query_states,
-        key_states,
-        value_states,
-        attention_mask.to(bool),
-        dropout=0.0 if not self.training else self.attention_dropout,
-        scaling=self.scaling,
-        # **kwargs,
-    )
+    # # MEGA ATTENTION EXPERIMENT
+    # from fabrique.models.common.utils import repeat_kv as rkv
+    # output = jax.nn.dot_product_attention(xq, rkv(xk, 4), rkv(xv, 4), mask=mask[:, None, :, :], implementation="cudnn")
 
 
+    # from transformers.integrations.sdpa_attention import repeat_kv as t_repeat_kv
+    # attn_output = torch.nn.functional.scaled_dot_product_attention(
+    #     query_states,
+    #     t_repeat_kv(key_states, 4),
+    #     t_repeat_kv(value_states, 4),
+    #     attn_mask=attention_mask,
+    #     #dropout_p=dropout,
+    #     # scale=scaling,
+    #     #is_causal=is_causal,
+    # )
+
+    # attn_output, attn_weights = attention_interface(
+    #     self,
+    #     query_states,
+    #     key_states,
+    #     value_states,
+    #     attention_mask.to(bool),
+    #     dropout=0.0 if not self.training else self.attention_dropout,
+    #     scaling=self.scaling,
+    #     # **kwargs,
+    # )
+
+
+    # TODO (2025-05-08): if we generate h_norm1 with random, diff == 0
+    # but if we use output from the previous layer (incl. same shape and dtype),
+    # results differ
 
     # jax - layer
     x = tok_emb
     h_norm1 = m.layers[0].attention_norm(x)
+
+    h_norm1 = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
     h_attn1 = m.layers[0].attention(
         h_norm1,
         0,
         padding_mask=padding_mask.astype(bool),
     )
-    h = x + h_attn1
-    out = h + m.layers[0].feed_forward(m.layers[0].ffn_norm(h))
+    # h = x + h_attn1
+    # out = h + m.layers[0].feed_forward(m.layers[0].ffn_norm(h))
 
 
     # torch - layer
-    inputs_embeds = t_tok_emb
-    hidden_states = inputs_embeds
-    residual = hidden_states
-
     layer = t_m.model.layers[0]
-    hidden_states = layer.input_layernorm(hidden_states)   # NOTE: hidden states differ by 1.2e-07
+    t_x = t_tok_emb
+    t_h_norm1 = layer.input_layernorm(t_x)
 
+
+    t_h_norm1 = j2t(h_norm1, t_m.device)
     # Self Attention
-    hidden_states, self_attn_weights = layer.self_attn(
-        hidden_states=hidden_states,
+    t_h_attn1 = layer.self_attn(
+        hidden_states=t_h_norm1,
         attention_mask=attention_mask,
-        position_ids=position_ids,
-        past_key_value=past_key_values,
-        output_attentions=False,
-        use_cache=False,
-        cache_position=cache_position,
+        # position_ids=position_ids,
+        # past_key_value=past_key_values,
+        # output_attentions=False,
+        # use_cache=False,
+        # cache_position=cache_position,
         position_embeddings=position_embeddings,
         # **kwargs,
-    )
+    )[0]
+    diff(h_attn1, t_h_attn1)
+
+
     hidden_states = residual + hidden_states
 
     # Fully Connected
@@ -389,6 +425,16 @@ def main3():
     hidden_states = layer.post_attention_layernorm(hidden_states)
     hidden_states = layer.mlp(hidden_states)
     hidden_states = residual + hidden_states
+
+
+    ########################################
+    # checking attention (copy)
+    x = jax.random.normal(jax.random.key(0), (1, 8, 2048), dtype=jnp.bfloat16)
+    hidden_states = j2t(x, t_m.device)
+    j_r = m.layers[0].attention(x, 0)
+    t_r = t_m.model.layers[0].self_attn(hidden_states=hidden_states, position_embeddings=position_embeddings, attention_mask=attention_mask)[0]
+    diff(j_r, t_r)
+
 
 
 
